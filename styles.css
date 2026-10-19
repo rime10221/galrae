@@ -732,3 +732,24 @@ textarea.drop { box-shadow: 0 0 0 3px var(--accent) !important; }
   .orow.sel .oacts { display: none; }
   .orow.sel:hover .oacts { display: flex; }
 }
+
+/* ---------- 읽기 화면 사진: 화면에 꽉 차게 (가로든 세로든) ---------- */
+:is(.note-view, .gi-note, .back-body, .onote) .md-img:not([data-state="loading"]):not([data-state="missing"]) {
+  width: 100%; height: auto; max-height: 85vh; max-height: 85dvh; object-fit: contain; background: none; border-radius: 10px;
+}
+.onote .md-img:not([data-state]) , .onote .md-img[data-state="ok"] { max-height: 60vh; }
+.rich .md-img { max-height: 50vh; }
+
+/* ---------- 손가락 확대 (.pz) ---------- */
+html { touch-action: pan-x pan-y; }
+.pz { overflow-x: auto; overflow-y: hidden; touch-action: pan-x pan-y; overscroll-behavior-x: contain; }
+.pz.pz-both { overflow: auto; }
+.pz.pz-on { cursor: grab; }
+.pz-reset { position: fixed; left: 50%; transform: translateX(-50%); bottom: 24px; z-index: 210; border: 0; border-radius: 999px; padding: 10px 18px; background: rgba(40, 40, 44, .92); color: #fff; font-size: 14px; font-weight: 600; box-shadow: 0 6px 24px rgba(0,0,0,.3); }
+@media (max-width: 860px) { .pz-reset { bottom: calc(76px + env(safe-area-inset-bottom)); } }
+
+/* ---------- 사진 크게 보기 ---------- */
+.lbx { position: fixed; inset: 0; z-index: 300; background: rgba(0, 0, 0, .94); }
+.lbx .pz { position: absolute; inset: 0; }
+.lbx img { display: block; width: 100vw; height: 100vh; height: 100dvh; object-fit: contain; }
+.lbx-x { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 12px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(255,255,255,.16); color: #fff; font-size: 18px; z-index: 1; }

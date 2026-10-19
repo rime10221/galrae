@@ -12,7 +12,9 @@ let editingId = null;    // 이름을 고치고 있는 노드
 let editingNew = false;  // 방금 만든 노드인지 (비워 두면 지운다)
 let filter = '';
 let noteEd = null; // 상세 패널의 외울 것 편집기
-let preview = lsGet('galrae.v1.notePreview', true);
+// 외울 것 읽기/편집: 내용이 있으면 갈래를 열 때마다 읽기부터 (편집 버튼을 눌러야 편집)
+let preview = true;
+let modeFor = null;
 // 상세의 외울 것 칸: 접으면 버튼 한 줄, 펼치면 크게 (기본은 접힘)
 let noteOpen = lsGet('galrae.v1.noteOpen', false);
 const setNoteOpen = (v) => { noteOpen = v; lsSet('galrae.v1.noteOpen', v); };
@@ -491,6 +493,7 @@ function renderDetail() {
     det.innerHTML = `<div class="d-empty muted"><p>왼쪽 항목의 <b>●</b>를 누르면<br>외울 것을 읽고 편집할 수 있어요.</p></div>`;
     return;
   }
+  if (modeFor !== sel) { modeFor = sel; preview = !!(n.note || '').trim(); }
   const p = S.path(sel);
   const kids = S.children(sel);
   const modes = { card: '카드' };
@@ -514,7 +517,9 @@ function renderDetail() {
         <button class="icon-btn small" data-act="full" title="크게 보기">${$('#detail', el).classList.contains('note-full') ? '✕' : '⤢'}</button>
         ${preview ? '' : '<button class="btn primary small" data-act="save" title="저장 (Ctrl+S)">저장</button>'}</div>
       ${preview
-        ? `<div class="md big note-view" data-act="edit">${renderMd(n.note) || '<span class="muted">비어 있어요. 눌러서 외울 것을 적어 보세요 (사진도 넣을 수 있어요)</span>'}</div>`
+        ? ((n.note || '').trim()
+          ? `<div class="note-view pz"><div class="pz-in md big">${renderMd(n.note)}</div></div>`
+          : '<div class="md big note-view" data-act="edit"><span class="muted">비어 있어요. 눌러서 외울 것을 적어 보세요 (사진도 넣을 수 있어요)</span></div>')
         : `<div class="d-note-host"></div>`}
     </div>`}
     <div class="d-field">
@@ -563,7 +568,7 @@ function saveNow(stay = false) {
   flushDetail();
   saveState('saved');
   toast('저장했어요', { ms: 1200 });
-  if (!stay) { preview = true; lsSet('galrae.v1.notePreview', true); renderDetail(); }
+  if (!stay) { preview = true; renderDetail(); }
 }
 const saveCues = debounce((id, v) => S.as('detail', () => S.updateNode(id, { cues: v.split('\n').map((x) => x.trim()).filter(Boolean) })), 350);
 const saveTitle = debounce((id, v) => S.as('detail', () => S.updateNode(id, { title: v })), 300);
@@ -591,12 +596,12 @@ async function onDetailClick(e) {
   switch (b.dataset.act) {
     case 'close': el.classList.remove('detail-open'); return;
     case 'star': S.as('outline', () => S.updateNode(sel, { star: !n.star })); render(); return;
-    case 'edit': if (preview) { flushDetail(); preview = false; lsSet('galrae.v1.notePreview', false); renderDetail(); noteEd?.focus(); } return;
-    case 'preview': flushDetail(); preview = true; lsSet('galrae.v1.notePreview', true); return renderDetail();
+    case 'edit': if (preview) { flushDetail(); preview = false; renderDetail(); noteEd?.focus(); } return;
+    case 'preview': flushDetail(); preview = true; return renderDetail();
     case 'note-open':
       setNoteOpen(true);
       // 비어 있으면 바로 쓰기, 있으면 읽기부터
-      if (!(n.note || '').trim()) { preview = false; lsSet('galrae.v1.notePreview', false); }
+      preview = !!(n.note || '').trim();
       renderDetail();
       if (!preview) noteEd?.focus();
       return;

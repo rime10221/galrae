@@ -183,6 +183,32 @@ const H = `
     }
     click($('.detail [data-act="preview"]')); await sleep(300);
     out.imgShown = $('.note-view img.md-img')?.dataset.state === 'ok';
+    // 읽기 화면: 사진은 꽉 차게, 누르면 크게 보기(뒤로 가기로 닫힘), Ctrl+휠로 외울 것 확대
+    {
+      const im = $('.note-view img.md-img');
+      out.imgWide = Math.abs(im.getBoundingClientRect().width - $('.note-view .pz-in').getBoundingClientRect().width) < 2;
+      const h0 = location.hash;
+      im.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); await sleep(50);
+      const opened = !!$('.lbx img');
+      history.back(); await sleep(300);
+      out.lightbox = opened && !$('.lbx') && location.hash === h0;
+      const pv = $('.note-view.pz');
+      const r = pv.getBoundingClientRect();
+      pv.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100, clientX: r.left + 20, clientY: r.top + 20 })); await sleep(30);
+      const zoomedIn = /scale\(/.test($('.note-view .pz-in').style.transform) && !$('.pz-reset').hidden;
+      click($('.pz-reset')); await sleep(30);
+      out.pinchZoom = zoomedIn && !$('.note-view .pz-in').style.transform && $('.pz-reset').hidden;
+      // 편집 잠금: 다른 갈래를 갔다 와도 읽기부터, 읽기 화면을 눌러도 편집 안 됨, 편집 버튼으로만
+      click($('.detail [data-act="edit"]')); await sleep(30);
+      const editing = !!$('.d-note-host .rich');
+      await go('#tree/' + S.roots()[0]); await go('#tree/' + gdm); await sleep(50);
+      const lockedAgain = !$('.d-note-host .rich') && !!$('.note-view');
+      click($('.note-view .pz-in')); await sleep(30);
+      const stillLocked = !$('.d-note-host .rich');
+      click($('.detail .seg [data-act="edit"]')); await sleep(30);
+      out.readLock = editing && lockedAgain && stillLocked && !!$('.d-note-host .rich');
+      click($('.detail [data-act="preview"]')); await sleep(30);
+    }
     // 끌어서 순서 바꾸기: 첫 과목의 첫 하위를 두 번째 뒤로
     {
       await go('#tree');
@@ -335,6 +361,10 @@ const H = `
   ok('정리: 외울 것 토글(기본 접힘·모두 펼치기·하나 접기)', r.inlineNotes);
   ok('사진: 붙여넣기 저장', r.imgSaved);
   ok('사진: 외울 것에 표시', r.imgShown);
+  ok('사진: 읽기 화면에서 가로 꽉 차게', r.imgWide);
+  ok('사진: 크게 보기 → 뒤로 가기로 닫힘', r.lightbox);
+  ok('외울 것: 한 덩어리로 확대 · 원래 크기', r.pinchZoom);
+  ok('외울 것: 편집 버튼을 눌러야만 편집', r.readLock);
   ok('사진: 눌러서 선택 · Backspace 로 삭제', r.imgDelete);
   ok('사진: 삭제 되돌리기', r.imgUndo);
   ok('사진: 메뉴의 사진 삭제', r.imgMenuDel);

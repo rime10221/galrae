@@ -5,6 +5,7 @@ import * as Train from './train.js';
 import * as Tree from './outline.js';
 import * as GV from './graphview.js';
 import * as Images from './images.js';
+import * as Zoom from './zoom.js';
 import { $, $$, esc, toast, openDialog, confirmDlg, download, copyText, timeAgo, todayKey, composing, debounce } from './util.js';
 
 const VIEWS = ['tree', 'graph', 'train', 'settings'];
@@ -31,6 +32,7 @@ function boot() {
   S.load();
   applyTheme();
   Images.init();
+  Zoom.init();
   $('#nav').innerHTML = `<div class="brand"><img src="icons/icon.svg" alt=""><div><b>갈래</b><small>경우의 수 트레이너</small></div></div>
     ${VIEWS.map((v) => `<a href="#${v}" data-view="${v}">${icon(v)}<span>${LABELS[v]}</span></a>`).join('')}
     <button class="nav-search" data-act="palette" title="찾기 (Ctrl+K)">${icon('search')}<span>찾기</span><kbd>Ctrl K</kbd></button>

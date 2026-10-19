@@ -4,7 +4,7 @@
 // · '텍스트로' 를 누르면 예전처럼 마크다운(==, -)으로 직접 편집
 // · 사진은 누르면 선택(테두리) → Delete/Backspace 또는 메뉴의 🗑 로 삭제
 import * as Images from './images.js';
-import { esc, composing, lsGet, lsSet, toast, openDialog } from './util.js';
+import { esc, composing, lsGet, lsSet, toast } from './util.js';
 
 const RAW_KEY = 'galrae.v1.rawEditor';
 
@@ -466,7 +466,7 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
   function cmd(name) {
     if (name === 'img-del') { if (picked) removeImg(picked); return; }
     if (name === 'img-view') {
-      if (picked?.src) openDialog(`<div class="lightbox" data-close=""><img src="${picked.src}" alt=""></div>`, { cls: 'lb' });
+      if (picked?.src) Images.openLightbox(picked.src);
       return;
     }
     if (raw) {

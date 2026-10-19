@@ -1,7 +1,8 @@
 ﻿// 외울 것에 넣는 사진: 압축해서 IndexedDB에 저장, 메모에는 ![](img:ID) 로 참조.
 // 메타데이터(data.images)는 동기화되고, 원본은 Drive Galrae/images/ 에 올라간다.
 import * as S from './store.js';
-import { uid, openDialog, toast } from './util.js';
+import * as Zoom from './zoom.js';
+import { uid, toast } from './util.js';
 
 const DB = 'galrae-img', STORE = 'blobs';
 const MAX = 1600, QUALITY = 0.82;
@@ -91,14 +92,38 @@ function scan(root) {
 export function init() {
   new MutationObserver((ms) => { for (const m of ms) m.addedNodes.forEach(scan); }).observe(document.body, { childList: true, subtree: true });
   scan(document.body);
-  // 사진 누르면 크게 보기
+  // 사진 누르면 크게 보기 (두 손가락으로 확대한 직후의 터치는 무시)
   document.addEventListener('click', (e) => {
     const img = e.target.closest('.md-img');
     if (!img || !img.src || e.target.closest('.flip:not(.flipped)') || e.target.closest('[contenteditable="true"]')) return;
     e.preventDefault();
     e.stopPropagation();
-    openDialog(`<div class="lightbox" data-close=""><img src="${img.src}" alt=""></div>`, { cls: 'lb' });
+    if (Zoom.recentlyPinched()) return;
+    openLightbox(img.src);
   }, true);
+  window.addEventListener('popstate', (e) => { if (lbx && !e.state?.lbx) closeLightbox(); });
+  document.addEventListener('keydown', (e) => { if (lbx && e.key === 'Escape') { e.preventDefault(); history.back(); } }, true);
+}
+
+// ---------- 사진 크게 보기 ----------
+// 화면에 꽉 차게(가로든 세로든), 두 손가락으로 확대, 뒤로 가기 · ✕ · 바깥을 누르면 닫힌다
+let lbx = null;
+export function openLightbox(src) {
+  if (!src) return;
+  closeLightbox();
+  lbx = document.createElement('div');
+  lbx.className = 'lbx';
+  lbx.innerHTML = `<div class="pz pz-both"><div class="pz-in"><img src="${src}" alt=""></div></div><button class="lbx-x" aria-label="닫기">✕</button>`;
+  lbx.addEventListener('click', (e) => {
+    if (Zoom.recentlyPinched()) return;
+    if (e.target.closest('.lbx-x') || !e.target.closest('img')) history.back();
+  });
+  document.body.append(lbx);
+  history.pushState({ lbx: 1 }, '');
+}
+function closeLightbox() {
+  lbx?.remove();
+  lbx = null;
 }
 
 // 업로드가 필요한 이미지 (동기화용)

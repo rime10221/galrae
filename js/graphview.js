@@ -126,7 +126,7 @@ window.addEventListener('popstate', (e) => {
     armed = true;
     return;
   }
-  if (!armed) { if (fromMap && location.hash.startsWith('#graph')) history.back(); return; }
+  if (!armed) { if (fromMap && !sameHash && location.hash.startsWith('#graph')) history.back(); return; }
   armed = false;
   if (!el || el.hidden || !location.hash.startsWith('#graph')) return;
   const cur = g.sel && S.node(g.sel) ? g.sel : null;
@@ -302,7 +302,9 @@ function showInfo(id) {
          <div class="gi-actions gi-save"><span class="save-state" id="gSaveState">자동 저장돼요</span><button class="btn primary" data-act="done" title="저장 (Ctrl+S)">저장</button></div>`
       : `<h2 class="gi-title">${esc(n.title || '제목 없음')}${n.star ? ' <span class="st">★</span>' : ''}</h2>
          <div class="gi-sub muted small">${esc(S.levelName(p.length))}${sibs.length > 1 ? ` · 같은 층 ${sibs.length}가지 중 ${sibs.indexOf(id) + 1}번째` : ''}</div>
-         <div class="gi-note ${note ? '' : 'empty'}" data-act="edit">${note ? `<div class="md big">${renderMd(note)}</div>` : '<p class="muted">외울 것이 없어요. 눌러서 추가</p>'}</div>
+         ${note
+           ? `<div class="gi-note pz"><div class="pz-in md big">${renderMd(note)}</div></div>`
+           : '<div class="gi-note empty" data-act="edit"><p class="muted">외울 것이 없어요. 눌러서 추가</p></div>'}
          ${kids.length ? `<div class="gi-sec"><h4>하위 ${kids.length}</h4><div class="gi-kids">${kids.map((k, i) => {
            const kn = S.node(k);
            return `<button data-focus="${k}"><em>${i + 1}</em><span>${esc(kn.title || '제목 없음')}</span>${kn.note?.trim() ? '<i>📝</i>' : ''}${S.children(k).length ? `<small>${S.children(k).length}</small>` : ''}</button>`;
