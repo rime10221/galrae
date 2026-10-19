@@ -1,11 +1,14 @@
-﻿// 트리(개요) 편집기 + 상세 패널
-// Enter 새 항목 · Tab 들여쓰기 · Shift+Tab 내어쓰기 · Alt+↑↓ 이동 · Ctrl+Enter 상세 · 빈 줄에서 Backspace 삭제
+﻿// 정리(트리) + 상세 패널
+// 한 번 누르면 선택, ✎ · 더블클릭 · F2 로 이름 바꾸기, ＋ 로 하위 추가
+// 선택한 상태에서: ↑↓ 이동 · ←→ 접기/펼치기 · Enter/F2 이름 · Tab/Shift+Tab 들여/내어쓰기 · Alt+↑↓ 순서 · Delete 삭제
 import * as S from './store.js';
 import * as Ed from './editor.js';
 import { $, $$, esc, debounce, renderMd, lsGet, lsSet, composing, toast, confirmDlg, openDialog } from './util.js';
 
 let el, api;
-let sel = null;          // 상세 패널에 열린 노드
+let sel = null;          // 선택한(상세 패널에 열린) 노드
+let editingId = null;    // 이름을 고치고 있는 노드
+let editingNew = false;  // 방금 만든 노드인지 (비워 두면 지운다)
 let filter = '';
 let noteEd = null; // 상세 패널의 외울 것 편집기
 let preview = lsGet('galrae.v1.notePreview', true);
@@ -14,6 +17,7 @@ let notesOpen = new Set(lsGet('galrae.v1.notesOpen', []));
 const saveNotesOpen = () => lsSet('galrae.v1.notesOpen', [...notesOpen]);
 let collapsed = new Set(lsGet('galrae.v1.collapsed', []));
 const saveCollapsed = () => lsSet('galrae.v1.collapsed', [...collapsed]);
+const narrow = () => matchMedia('(max-width: 860px)').matches;
 
 export function init(root, hooks) {
   el = root;
@@ -22,7 +26,7 @@ export function init(root, hooks) {
     <div class="tree-main">
       <header class="tree-h"><h1>정리</h1><span class="muted small" id="treeStat"></span></header>
       <div class="toolbar">
-        <input class="input search" id="treeFilter" placeholder="갈래 · 내용 · 단서 검색" type="search">
+        <input class="input search" id="treeFilter" placeholder="갈래 · 내용 검색" type="search">
         <div class="tb-btns">
           <button class="btn small" data-act="notes" id="notesBtn" title="모든 외울 것 펼치기/접기">외울 것 모두 펼치기</button>
           <button class="btn small" data-act="expand-all" title="모두 펼치기">펼치기</button>
@@ -32,24 +36,30 @@ export function init(root, hooks) {
           <button class="btn small primary" data-act="add-root">+ 과목</button>
         </div>
       </div>
-      <div class="olist" id="olist"></div>
-      <p class="tree-help muted small">Enter 새 항목 · Tab 들여쓰기 · Shift+Tab 내어쓰기 · Alt+↑↓ 순서 이동 · Ctrl+Enter 상세 · 빈 항목에서 Backspace 삭제 · ● 눌러 상세 열기</p>
+      <div class="olist" id="olist" tabindex="0"></div>
+      <p class="tree-help muted small">누르면 선택 · ✎/더블클릭/F2 이름 바꾸기 · ＋ 하위 추가 · ↑↓ 이동 · ←→ 접기/펼치기 · Tab/Shift+Tab 들여/내어쓰기 · Alt+↑↓ 순서 · Delete 삭제</p>
     </div>
     <aside class="detail" id="detail"></aside>
     <div class="otools" id="otools">
       <button data-tool="outdent" title="내어쓰기">⇤</button><button data-tool="indent" title="들여쓰기">⇥</button>
       <button data-tool="up" title="위로">↑</button><button data-tool="down" title="아래로">↓</button>
-      <button data-tool="add" title="새 항목">＋</button><button data-tool="child" title="하위 항목">↳</button>
-      <button data-tool="open" title="상세">≡</button><button data-tool="del" title="삭제">🗑</button>
+      <button data-tool="rename" title="이름 바꾸기">✎</button><button data-tool="add" title="아래에 새 항목">＋</button>
+      <button data-tool="child" title="하위 항목">↳</button><button data-tool="open" title="외울 것 열기">≡</button><button data-tool="del" title="삭제">🗑</button>
     </div>
   </div>`;
   const list = $('#olist', el);
   list.addEventListener('click', onListClick);
+  list.addEventListener('dblclick', (e) => {
+    const row = e.target.closest('.orow');
+    if (row && !e.target.closest('button,input')) startEdit(row.dataset.id);
+  });
   list.addEventListener('keydown', onKey);
-  list.addEventListener('input', (e) => { if (e.target.matches('.otitle')) commitLater(e.target); });
-  list.addEventListener('focusout', (e) => { if (e.target.matches('.otitle')) commit(e.target); });
-  list.addEventListener('focusin', () => el.classList.add('editing'));
-  list.addEventListener('focusout', () => setTimeout(() => { if (!el.contains(document.activeElement) || !document.activeElement.matches('.otitle')) el.classList.remove('editing'); }, 150));
+  // 다른 곳을 누르면 이름 저장 (다시 그리면서 사라진 입력칸의 blur 는 무시)
+  list.addEventListener('focusout', (e) => {
+    if (!e.target.matches('.otitle')) return;
+    const id = e.target.closest('.orow')?.dataset.id;
+    setTimeout(() => { if (editingId === id && e.target.isConnected && document.activeElement !== e.target) finishEdit(true); }, 0);
+  });
   $('#otools', el).addEventListener('pointerdown', (e) => { const b = e.target.closest('[data-tool]'); if (b) { e.preventDefault(); tool(b.dataset.tool); } });
   $('.toolbar', el).addEventListener('click', onToolbar);
   $('#treeFilter', el).addEventListener('input', debounce((e) => { filter = e.target.value.trim(); renderList(); }, 150));
@@ -68,7 +78,7 @@ export function show(id) {
   render();
   if (id) {
     el.classList.add('detail-open');
-    requestAnimationFrame(() => $(`.orow[data-id="${id}"]`, el)?.scrollIntoView({ block: 'center' }));
+    requestAnimationFrame(() => rowOf(id)?.scrollIntoView({ block: 'center' }));
   }
 }
 
@@ -83,14 +93,12 @@ export function onStoreChange(o) {
   if (o.src === 'typing' || o.src === 'outline') return;
   // 상세 편집·사진 추가 중에는 편집칸을 다시 그리지 않는다
   if (o.src === 'detail' || o.src === 'image') return renderList();
-  // 동기화 등 외부 변경: 편집 중인 칸은 건드리지 않고 포커스를 되살린다
+  // 이름 고치는 중이거나 상세에서 입력 중이면 목록만 (입력칸 유지)
   const a = document.activeElement;
   const det = $('#detail', el);
+  if (editingId) return;
   if (a && det.contains(a) && a.matches('input,textarea,[contenteditable]')) return renderList();
-  const fid = a?.matches?.('.otitle') ? a.closest('.orow').dataset.id : null;
-  const caret = fid ? a.selectionStart : 0;
   render();
-  if (fid) focusRow(fid, caret);
 }
 
 // ---------- 목록 ----------
@@ -103,6 +111,8 @@ function matchSet() {
 
 function renderList() {
   const list = $('#olist', el);
+  if (editingId && !S.node(editingId)) editingId = null;
+  el.classList.toggle('has-sel', !!sel);
   const nb = $('#notesBtn', el);
   if (nb) { const w = S.descendants(null).filter((x) => S.node(x).note?.trim()); const all = w.length && w.every((x) => notesOpen.has(x)); nb.textContent = all ? '외울 것 모두 접기' : '외울 것 모두 펼치기'; nb.classList.toggle('primary', !!all); }
   const all = S.descendants(null);
@@ -122,11 +132,16 @@ function renderList() {
       n.star ? '<i class="st">★</i>' : '',
       m != null ? `<i class="dot" style="--m:${m}" title="숙련도 ${Math.round(m * 100)}%"></i>` : '',
     ].join('');
-    rows.push(`<div class="orow ${id === sel ? 'sel' : ''} d${Math.min(d, 4)}" data-id="${id}" style="--d:${d}">
+    const editing = id === editingId;
+    rows.push(`<div class="orow ${id === sel ? 'sel' : ''} ${editing ? 'editing-row' : ''} d${Math.min(d, 4)}" data-id="${id}" style="--d:${d}">
       <button class="caret ${kids.length ? (closed ? '' : 'open') : 'leaf'}" data-act="toggle" tabindex="-1" aria-label="펼치기"></button>
-      <button class="bullet ${closed && kids.length ? 'has' : ''}" data-act="open" tabindex="-1" aria-label="상세"></button>
-      <input class="otitle" value="${esc(n.title)}" placeholder="제목 없음" enterkeyhint="next" autocomplete="off">
-      <span class="ometa">${meta}</span></div>`);
+      <button class="bullet ${closed && kids.length ? 'has' : ''}" data-act="open" tabindex="-1" aria-label="외울 것 열기"></button>
+      ${editing
+        ? `<input class="otitle" value="${esc(n.title)}" placeholder="제목" enterkeyhint="done" autocomplete="off">`
+        : `<span class="otext ${n.title ? '' : 'empty'}">${esc(n.title || '제목 없음')}</span>`}
+      <span class="ometa">${meta}</span>
+      ${editing ? '' : `<span class="oacts"><button data-act="add-child" tabindex="-1" title="하위 항목 추가">＋</button><button data-act="rename" tabindex="-1" title="이름 바꾸기 (F2 · 더블클릭)">✎</button></span>`}
+    </div>`);
     if (notesOpen.has(id) && n.note?.trim()) rows.push(`<div class="onote md" data-note="${id}" style="--d:${d}">${renderMd(n.note)}</div>`);
     if (!closed) for (const k of kids) walk(k, d + 1);
   };
@@ -134,67 +149,102 @@ function renderList() {
   list.innerHTML = rows.join('') || (filter
     ? '<p class="empty muted">검색 결과가 없어요</p>'
     : `<div class="empty"><p>아직 갈래가 없어요.</p><button class="btn primary" data-act="add-root">+ 첫 과목 만들기</button> <button class="btn" data-act="import">텍스트로 한 번에 가져오기</button></div>`);
+  if (editingId) {
+    const inp = rowOf(editingId)?.querySelector('.otitle');
+    if (inp) { inp.focus(); inp.select(); }
+  }
 }
 
 const rowOf = (id) => $(`.orow[data-id="${id}"]`, el);
 const visibleIds = () => $$('.orow', el).map((r) => r.dataset.id);
+// 선택 줄로 키보드 포커스 (화면 밖이면 스크롤)
+function focusList(id = sel) {
+  const r = id && rowOf(id);
+  if (r) r.scrollIntoView({ block: 'nearest' });
+  if (!editingId && !narrow()) $('#olist', el).focus({ preventScroll: true });
+}
 
-function focusRow(id, caret = 'end') {
+// ---------- 선택 / 이름 바꾸기 ----------
+function select(id, { open = false } = {}) {
+  if (editingId && editingId !== id) finishEdit(true);
+  if (sel !== id) flushDetail();
+  sel = id;
+  renderList();
+  renderDetail();
+  if (open) el.classList.add('detail-open');
+  focusList(id);
+}
+
+function startEdit(id, isNew = false) {
+  if (!S.node(id)) return;
+  if (editingId && editingId !== id) finishEdit(true);
+  editingId = id;
+  editingNew = isNew;
+  if (sel !== id) { flushDetail(); sel = id; renderDetail(); }
+  renderList();
+}
+
+// save: 입력한 이름 저장 / 취소. next: 이어서 아래에 새 항목
+function finishEdit(save, { next = false } = {}) {
+  const id = editingId;
+  if (!id) return;
   const inp = rowOf(id)?.querySelector('.otitle');
-  if (!inp) return;
-  inp.focus();
-  const p = caret === 'end' ? inp.value.length : caret;
-  try { inp.setSelectionRange(p, p); } catch {}
-}
-
-const commitLater = debounce((inp) => commit(inp), 400);
-function commit(inp) {
-  const id = inp.closest('.orow')?.dataset.id;
   const n = S.node(id);
-  if (n && n.title !== inp.value) {
-    S.as('typing', () => S.updateNode(id, { title: inp.value }));
-    if (id === sel) { const t = $('.d-title', el); if (t && t !== document.activeElement) t.value = inp.value; }
+  const value = inp ? inp.value.trim() : n?.title;
+  editingId = null;
+  const wasNew = editingNew;
+  editingNew = false;
+  if (n && wasNew && !value) {
+    // 새로 만들었다가 비워 두면 지운다
+    S.as('outline', () => S.deleteNode(id));
+    sel = S.parentOf(id) || null;
+    renderList(); renderDetail(); focusList();
+    return;
   }
+  if (n && save && value !== n.title) S.as('outline', () => S.updateNode(id, { title: value }));
+  renderList();
+  renderDetail();
+  if (next && wasNew && value) return addAfter(id);
+  focusList(id);
 }
 
-// 구조 변경 후 다시 그리고 포커스 복원
-function structural(fn, focusId, caret) {
-  const a = document.activeElement;
-  if (a?.matches?.('.otitle')) commit(a);
+// 구조 변경 후 다시 그리고 선택 유지
+function structural(fn, keepId) {
+  if (editingId) finishEdit(true);
   const r = S.as('outline', fn);
   renderList();
   renderDetail();
-  if (focusId !== undefined) focusRow(typeof focusId === 'function' ? focusId(r) : focusId, caret);
+  focusList(keepId ?? sel);
   return r;
 }
 
 function addAfter(id) {
-  const n = S.node(id);
-  const kids = S.children(id);
-  if (kids.length && !collapsed.has(id)) {
-    return structural(() => S.addNode({ parent: id, index: 0 }), (nid) => nid);
-  }
   const p = S.parentOf(id);
-  return structural(() => S.addNode({ parent: p, index: S.children(p).indexOf(n.id) + 1 }), (nid) => nid);
+  const nid = S.as('outline', () => S.addNode({ parent: p, index: S.children(p).indexOf(id) + 1 }));
+  startEdit(nid, true);
+  return nid;
 }
 
 function addChild(id) {
   collapsed.delete(id); saveCollapsed();
-  return structural(() => S.addNode({ parent: id }), (nid) => nid);
+  const nid = S.as('outline', () => S.addNode({ parent: id }));
+  startEdit(nid, true);
+  return nid;
 }
 
 async function remove(id, { quiet = false } = {}) {
   const n = S.node(id);
+  if (!n) return false;
   const total = S.descendants(id).length;
-  if (!quiet && (total > 1 || n.note?.trim()) && !(await confirmDlg(`'${n.title || '제목 없음'}'${total > 1 ? ` 과 하위 ${total - 1}개` : ''}를 삭제할까요?`, { ok: '삭제', danger: true }))) return false;
+  if (!quiet && !(await confirmDlg(`'${n.title || '제목 없음'}'${total > 1 ? ` 과 하위 ${total - 1}개` : ''}를 삭제할까요?`, { ok: '삭제', danger: true }))) return false;
   const vis = visibleIds();
   const i = vis.indexOf(id);
   const ids = S.as('outline', () => S.deleteNode(id));
-  if (sel && ids.includes(sel)) { sel = null; el.classList.remove('detail-open'); }
+  const next = vis.slice(i + 1).find((x) => S.node(x)) || vis.slice(0, i).reverse().find((x) => S.node(x)) || null;
+  if (sel && ids.includes(sel)) { sel = next; el.classList.remove('detail-open'); }
   renderList();
   renderDetail();
-  const next = vis.slice(0, i).reverse().find((x) => S.node(x)) || vis.slice(i + 1).find((x) => S.node(x));
-  if (next) focusRow(next);
+  focusList();
   toast(`삭제했어요${ids.length > 1 ? ` (${ids.length}개)` : ''}`, { action: '되돌리기', onAction: () => { S.restore(ids); render(); } });
   return true;
 }
@@ -204,80 +254,100 @@ function toggle(id, open) {
   if (want) collapsed.delete(id); else collapsed.add(id);
   saveCollapsed();
   renderList();
+  focusList();
 }
 
 function openDetail(id) {
-  flushDetail();
-  sel = id;
-  renderList();
-  renderDetail();
-  el.classList.add('detail-open');
+  select(id, { open: true });
 }
 
 function onListClick(e) {
   const nt = e.target.closest('[data-note]');
   if (nt) return openDetail(nt.dataset.note);
   const b = e.target.closest('[data-act]');
-  if (!b) return;
-  if (b.dataset.act === 'add-root') return addRoot();
-  if (b.dataset.act === 'import') return api.importDialog(null);
-  const id = b.closest('.orow')?.dataset.id;
-  if (!id) return;
-  if (b.dataset.act === 'toggle') toggle(id);
-  if (b.dataset.act === 'note') { notesOpen.has(id) ? notesOpen.delete(id) : notesOpen.add(id); saveNotesOpen(); renderList(); }
-  if (b.dataset.act === 'open') openDetail(id);
+  const row = e.target.closest('.orow');
+  if (b) {
+    if (b.dataset.act === 'add-root') return addRoot();
+    if (b.dataset.act === 'import') return api.importDialog(null);
+    const id = row?.dataset.id;
+    if (!id) return;
+    switch (b.dataset.act) {
+      case 'toggle': return toggle(id);
+      case 'note': notesOpen.has(id) ? notesOpen.delete(id) : notesOpen.add(id); saveNotesOpen(); return renderList();
+      case 'open': return openDetail(id);
+      case 'rename': return startEdit(id);
+      case 'add-child': return addChild(id);
+    }
+    return;
+  }
+  if (!row || e.target.closest('input')) return;
+  const id = row.dataset.id;
+  // 휴대폰: 이미 선택한 줄을 한 번 더 누르면 외울 것 열기
+  if (narrow() && sel === id) return openDetail(id);
+  select(id);
 }
 
 function onKey(e) {
-  const inp = e.target;
-  if (!inp.matches('.otitle') || composing(e)) return;
-  const id = inp.closest('.orow').dataset.id;
-  const vis = visibleIds();
-  const i = vis.indexOf(id);
+  if (composing(e)) return;
   const mod = e.ctrlKey || e.metaKey;
-  if (e.key === 'Enter' && mod) { e.preventDefault(); commit(inp); openDetail(id); return; }
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addAfter(id); return; }
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    const caret = inp.selectionStart;
-    if (e.shiftKey) structural(() => S.outdent(id), id, caret);
-    else structural(() => { const np = S.indent(id); if (np) { collapsed.delete(np); saveCollapsed(); } }, id, caret);
+  // 이름 고치는 중
+  if (e.target.matches('.otitle')) {
+    const id = editingId;
+    if (e.key === 'Enter') { e.preventDefault(); finishEdit(true, { next: !mod }); }
+    else if (e.key === 'Escape') { e.preventDefault(); finishEdit(false); }
+    else if (e.key === 'Tab') {
+      e.preventDefault();
+      const v = e.target.value;
+      S.as('outline', () => S.updateNode(id, { title: v }));
+      if (e.shiftKey) S.as('outline', () => S.outdent(id));
+      else S.as('outline', () => { const np = S.indent(id); if (np) { collapsed.delete(np); saveCollapsed(); } });
+      renderList();
+    }
     return;
   }
-  if (e.key === 'Backspace' && !inp.value && !S.children(id).length) {
-    e.preventDefault();
-    remove(id, { quiet: true });
-    return;
+  // 선택한 줄 조작
+  if (!sel || e.target !== $('#olist', el)) return;
+  const vis = visibleIds();
+  const i = vis.indexOf(sel);
+  const go = (j) => { if (j >= 0 && j < vis.length) { e.preventDefault(); select(vis[j]); } };
+  switch (e.key) {
+    case 'ArrowUp': if (e.altKey) { e.preventDefault(); return structural(() => S.moveBy(sel, -1)); } return go(i - 1);
+    case 'ArrowDown': if (e.altKey) { e.preventDefault(); return structural(() => S.moveBy(sel, 1)); } return go(i + 1);
+    case 'ArrowLeft':
+      e.preventDefault();
+      if (S.children(sel).length && !collapsed.has(sel)) return toggle(sel, false);
+      if (S.parentOf(sel)) return select(S.parentOf(sel));
+      return;
+    case 'ArrowRight':
+      e.preventDefault();
+      if (S.children(sel).length && collapsed.has(sel)) return toggle(sel, true);
+      return go(i + 1);
+    case 'F2': case 'Enter':
+      e.preventDefault();
+      if (mod) return openDetail(sel);
+      return startEdit(sel);
+    case 'Tab':
+      e.preventDefault();
+      if (e.shiftKey) return structural(() => S.outdent(sel));
+      return structural(() => { const np = S.indent(sel); if (np) { collapsed.delete(np); saveCollapsed(); } });
+    case 'Delete': e.preventDefault(); return remove(sel);
+    case 'Insert': e.preventDefault(); return addChild(sel);
+    case 'Escape': sel = null; renderList(); renderDetail(); return;
   }
-  if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-    e.preventDefault();
-    structural(() => S.moveBy(id, e.key === 'ArrowUp' ? -1 : 1), id, inp.selectionStart);
-    return;
-  }
-  if (mod && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-    e.preventDefault();
-    toggle(id, e.key === 'ArrowDown');
-    focusRow(id);
-    return;
-  }
-  if (e.key === 'ArrowUp' && i > 0) { e.preventDefault(); commit(inp); focusRow(vis[i - 1], Math.min(inp.selectionStart, 999)); }
-  if (e.key === 'ArrowDown' && i < vis.length - 1) { e.preventDefault(); commit(inp); focusRow(vis[i + 1], Math.min(inp.selectionStart, 999)); }
-  if (e.key === 'Escape') inp.blur();
 }
 
 function tool(name) {
-  const inp = document.activeElement?.matches?.('.otitle') ? document.activeElement : null;
-  const id = inp?.closest('.orow')?.dataset.id || sel;
-  if (!id) return;
-  const caret = inp?.selectionStart ?? 'end';
+  const id = editingId || sel;
+  if (!id) return toast('먼저 항목을 하나 눌러 선택하세요');
   switch (name) {
-    case 'outdent': return structural(() => S.outdent(id), id, caret);
-    case 'indent': return structural(() => { const np = S.indent(id); if (np) { collapsed.delete(np); saveCollapsed(); } }, id, caret);
-    case 'up': return structural(() => S.moveBy(id, -1), id, caret);
-    case 'down': return structural(() => S.moveBy(id, 1), id, caret);
-    case 'add': return addAfter(id);
-    case 'child': return addChild(id);
-    case 'open': if (inp) commit(inp); return openDetail(id);
+    case 'outdent': return structural(() => S.outdent(id), id);
+    case 'indent': return structural(() => { const np = S.indent(id); if (np) { collapsed.delete(np); saveCollapsed(); } }, id);
+    case 'up': return structural(() => S.moveBy(id, -1), id);
+    case 'down': return structural(() => S.moveBy(id, 1), id);
+    case 'rename': return startEdit(id);
+    case 'add': if (editingId) finishEdit(true); return addAfter(id);
+    case 'child': if (editingId) finishEdit(true); return addChild(id);
+    case 'open': if (editingId) finishEdit(true); return openDetail(id);
     case 'del': return remove(id);
   }
 }
@@ -285,7 +355,8 @@ function tool(name) {
 function addRoot() {
   filter = '';
   $('#treeFilter', el).value = '';
-  structural(() => S.addNode({ parent: null, title: '' }), (nid) => nid);
+  const nid = S.as('outline', () => S.addNode({ parent: null, title: '' }));
+  startEdit(nid, true);
 }
 
 function onToolbar(e) {
@@ -388,8 +459,8 @@ function onDetailInput(e) {
   if (t.matches('.d-cues')) saveCues(sel, t.value);
   else if (t.matches('.d-title')) {
     saveTitle(sel, t.value);
-    const ri = rowOf(sel)?.querySelector('.otitle');
-    if (ri) ri.value = t.value;
+    const ri = rowOf(sel)?.querySelector('.otext');
+    if (ri) { ri.textContent = t.value || '제목 없음'; ri.classList.toggle('empty', !t.value); }
   }
 }
 

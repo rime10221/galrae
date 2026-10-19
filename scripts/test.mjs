@@ -55,19 +55,42 @@ const H = `
     const out = {};
     out.seed = S.count();
     await go('#tree');
-    const inp = $$('.orow')[1].querySelector('.otitle');
-    inp.focus(); key(inp, 'Enter'); await sleep(30);
-    out.enterAdds = $$('.orow').length === out.seed + 1 && document.activeElement.value === '';
-    const ni = document.activeElement;
-    ni.value = '테스트'; ni.dispatchEvent(new Event('input', { bubbles: true }));
-    const nid = ni.closest('.orow').dataset.id;
-    key(ni, 'ArrowDown', { altKey: true }); await sleep(30);
-    out.altMove = S.children(S.parentOf(nid)).indexOf(nid) === 1;
-    key(document.activeElement, 'Tab'); await sleep(30);
+    await go('#tree');
+    const list = $('#olist');
+    const row1 = $$('.orow')[1], id1 = row1.dataset.id, t1 = S.node(id1).title;
+    click(row1.querySelector('.otext')); await sleep(30);
+    out.clickSelects = $('.orow.sel')?.dataset.id === id1 && !$('.orow .otitle');
+    // F2 → 이름 바꾸기, Enter → 저장 (기존 항목은 새 줄 안 생김)
+    key(list, 'F2'); await sleep(30);
+    const e1 = $('.orow .otitle');
+    e1.value = t1 + '!'; key(e1, 'Enter'); await sleep(30);
+    out.f2Rename = S.node(id1).title === t1 + '!' && !$('.orow .otitle') && S.count() === out.seed;
+    // 더블클릭 → 편집, Esc → 취소
+    $(`.orow[data-id="${id1}"] .otext`).dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await sleep(30);
+    const e2 = $('.orow .otitle'); e2.value = '바뀌면 안 됨'; key(e2, 'Escape'); await sleep(30);
+    out.dblEsc = !!e2 && S.node(id1).title === t1 + '!';
+    S.updateNode(id1, { title: t1 });
+    await go('#tree');
+    // ＋ → 하위 추가 (이름 입력 → Enter 저장 후 이어서 다음 항목, 비워 두면 사라짐)
+    click($(`.orow[data-id="${id1}"] [data-act="add-child"]`)); await sleep(30);
+    const e3 = document.activeElement;
+    out.plusChild = e3?.matches('.otitle') && S.parentOf(e3.closest('.orow').dataset.id) === id1;
+    const nid = e3.closest('.orow').dataset.id;
+    e3.value = '테스트'; key(e3, 'Enter'); await sleep(30);
+    const e4 = document.activeElement;
+    const cont = e4?.matches('.otitle') && e4.closest('.orow').dataset.id !== nid;
+    key(e4, 'Escape'); await sleep(30);
+    out.plusFlow = S.node(nid)?.title === '테스트' && cont && S.children(id1).length === 4;
+    // 선택한 줄 키보드 조작
+    click($(`.orow[data-id="${nid}"] .otext`)); await sleep(20);
+    key(list, 'ArrowUp', { altKey: true }); await sleep(30);
+    out.altMove = S.children(id1).indexOf(nid) === 2;
+    key(list, 'Tab'); await sleep(30);
     out.tabIndent = S.depth(nid) === 4;
-    key(document.activeElement, 'Tab', { shiftKey: true }); await sleep(30);
+    key(list, 'Tab', { shiftKey: true }); await sleep(30);
     out.shiftTab = S.depth(nid) === 3;
-    document.activeElement.value = ''; key(document.activeElement, 'Backspace'); await sleep(30);
+    key(list, 'Delete'); await sleep(60);
+    click(document.querySelector('dialog [data-close="ok"]')); await sleep(60);
     out.backspaceDel = !S.node(nid);
     const gdm = S.findByTitle('임신과 당뇨병');
     const endOf = (el) => { el.focus(); const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
@@ -194,7 +217,12 @@ const H = `
     g.select(inf, true); await sleep(100);
     const shown = g.map.has(gbs);
     g.select(inf, true); await sleep(100);
-    out.mapToggle = hiddenBefore && shown && !g.map.has(gbs);    click($('#gLayout [data-v="force"]')); await sleep(200);
+    out.mapToggle = hiddenBefore && shown && !g.map.has(gbs);
+    // 뒤로 가기: 펼치기 전 상태로 (마인드맵을 나가지 않음)
+    g.select(inf, true); await sleep(100);
+    const openNow = g.map.has(gbs);
+    history.back(); await sleep(300);
+    out.mapBack = openNow && !g.map.has(gbs) && location.hash.startsWith('#graph') && !$('#view-graph').hidden;    click($('#gLayout [data-v="force"]')); await sleep(200);
     click($('#gLayout [data-v="tree"]')); await sleep(200);
     key(document.body, 'k', { ctrlKey: true }); await sleep(30);
     const pin = $('dialog.palette input');
@@ -208,11 +236,15 @@ const H = `
     return out;
   });
   ok('시드 데이터', r.seed === 16, r.seed);
-  ok('트리: Enter 새 항목', r.enterAdds);
-  ok('트리: Alt+↓ 이동', r.altMove);
+  ok('정리: 한 번 누르면 선택(편집 아님)', r.clickSelects);
+  ok('정리: F2로 이름 바꾸기', r.f2Rename);
+  ok('정리: 더블클릭 편집 · Esc 취소', r.dblEsc);
+  ok('정리: ＋로 하위 추가', r.plusChild);
+  ok('정리: 입력 후 Enter → 이어서 다음 항목, Esc → 빈 항목 삭제', r.plusFlow);
+  ok('정리: Alt+↑ 순서 이동', r.altMove);
   ok('트리: Tab 들여쓰기', r.tabIndent);
   ok('트리: Shift+Tab 내어쓰기', r.shiftTab);
-  ok('트리: 빈 항목 Backspace 삭제', r.backspaceDel);
+  ok('정리: Delete 삭제', r.backspaceDel);
   ok('편집기: 기존 내용이 보이는 대로(형광펜·목록)', r.richRoundtrip);
   ok('편집기: 입력 저장', r.noteSaved);
   ok('편집기: 선택 후 형광펜 버튼', r.markBtn);
@@ -236,6 +268,7 @@ const H = `
   ok('마인드맵: 노트 카드', r.noteCard);
   ok('마인드맵: 노트 카드에서 편집', r.graphEdit);
   ok('마인드맵: 누르면 하위 펼치기/다시 누르면 접기', r.mapToggle);
+  ok('마인드맵: 뒤로 가기 = 바로 전 상태', r.mapBack);
   ok('마인드맵: 하위 갈래는 항상 오른쪽 열', r.graph.colsOk);
   ok('마인드맵: 같은 깊이는 같은 열', r.graph.sameDepthSameX);
   ok('마인드맵: 형제는 순서대로 위→아래', r.graph.rowsOk);

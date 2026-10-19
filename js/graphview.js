@@ -64,6 +64,7 @@ export function init(root, hooks) {
     saveOpen();
     e.target.value = '';
     refresh(true);
+    remember();
   });
   $('#gScope', el).addEventListener('change', (e) => { scope = e.target.value; refresh(true); });
   $('#gLocal', el).addEventListener('click', () => {
@@ -94,15 +95,46 @@ export function show(id) {
   if (dirty || !g.nodes.length) refresh(true);
   if (id && S.node(id)) {
     if (scope && S.rootOf(id) !== scope) { scope = ''; refresh(true); }
-    setTimeout(() => focus(id), 60);
-  } else if (!g.sel) setTimeout(() => g.fit(0), 30);
+    setTimeout(() => { focus(id, { record: false }); remember(true); }, 60);
+  } else {
+    if (!g.sel) setTimeout(() => g.fit(0), 30);
+    remember(true);
+  }
 }
 
 export function themeChanged() { if (g) { g.readColors(); g.kick(0); } }
 
+// ---------- 뒤로 가기 = 마인드맵의 바로 전 상태 ----------
+// 누를 때마다 (펼친 갈래 · 선택한 갈래)를 브라우저 기록에 쌓아 두고,
+// 휴대폰 뒤로 가기를 누르면 한 단계씩 되돌린다. 맨 처음 상태에서 한 번 더 누르면 마인드맵을 나간다.
+const snapshot = () => ({ open: [...open], sel: g.sel || null });
+function remember(replace = false) {
+  const st = { ...(history.state || {}), gmap: snapshot() };
+  if (replace) history.replaceState(st, '');
+  else history.pushState(st, '');
+}
+window.addEventListener('popstate', (e) => {
+  const s = e.state?.gmap;
+  if (!s || !el || el.hidden) return;
+  flushEdit();
+  editing = false;
+  open = new Set(s.open);
+  saveOpen();
+  lastSel = s.sel;
+  g.select(s.sel);
+  refresh();
+  showInfo(s.sel);
+  if (s.sel && g.map.has(s.sel)) g.centerOn(s.sel, Math.max(g.view.k, 0.9), infoOffset());
+});
+
 // 누르면: 접혀 있으면 바로 아래 레벨 펼치기, 이미 펼친 걸 다시 누르면 접기
 function onNodeTap(id) {
-  if (!id) { lastSel = null; return showInfo(null); }
+  if (!id) {
+    if (!lastSel && !g.sel) return;
+    lastSel = null;
+    showInfo(null);
+    return remember();
+  }
   if (!local && S.children(id).length) {
     if (open.has(id) && lastSel === id) open.delete(id); else open.add(id);
     saveOpen();
@@ -111,9 +143,10 @@ function onNodeTap(id) {
   lastSel = id;
   showInfo(id);
   g.centerOn(id, Math.max(g.view.k, 0.9), infoOffset());
+  remember();
 }
 
-function focus(id) {
+function focus(id, { record = true } = {}) {
   // 경로를 펼쳐서 보이게
   for (const n of S.path(id).slice(0, -1)) open.add(n.id);
   saveOpen();
@@ -123,6 +156,7 @@ function focus(id) {
   else { if (!g.map.has(id)) scope = ''; refresh(); }
   showInfo(id);
   g.centerOn(id, 1.3, infoOffset());
+  if (record) remember();
 }
 
 function infoOffset() {
@@ -278,7 +312,7 @@ function onInfoClick(e) {
   if (!b) return;
   if (b.dataset.focus) { flushEdit(); return focus(b.dataset.focus); }
   switch (b.dataset.act) {
-    case 'close': flushEdit(); g.select(null); showInfo(null); if (local) { local = false; refresh(true); } return;
+    case 'close': flushEdit(); g.select(null); lastSel = null; showInfo(null); if (local) { local = false; refresh(true); } return remember();
     case 'grow': $('#gInfo', el).classList.toggle('grown'); return;
     case 'edit': editing = true; showInfo(g.sel); gEd?.focus(); return;
     case 'done': flushEdit(); editing = false; refresh(); api.toast('저장했어요', { ms: 1200 }); return showInfo(g.sel);

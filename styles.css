@@ -461,7 +461,7 @@ button.chip:hover { filter: brightness(.95); }
   .detail-open .detail { display: block; animation: slidein .28s cubic-bezier(.3,.7,.4,1); }
   @keyframes slidein { from { transform: translateX(100%); } }
   .d-back { display: inline-grid; }
-  .editing .otools { display: flex; position: fixed; left: 0; right: 0; bottom: calc(56px + env(safe-area-inset-bottom)); z-index: 25; background: var(--glass); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border-top: .5px solid var(--line2); padding: 6px; gap: 4px; justify-content: space-between; }
+  .has-sel .otools { display: flex; position: fixed; left: 0; right: 0; bottom: calc(56px + env(safe-area-inset-bottom)); z-index: 25; background: var(--glass); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border-top: .5px solid var(--line2); padding: 6px; gap: 4px; justify-content: space-between; }
   .otools button { flex: 1; height: 40px; border: 0; border-radius: 10px; background: var(--card); font-size: 17px; color: var(--accent); }
   .g-toolbar { padding: 8px 10px; gap: 6px; overflow-x: auto; flex-wrap: nowrap; }
   .g-toolbar .search { width: 140px; flex: none; }
@@ -641,4 +641,25 @@ textarea.drop { box-shadow: 0 0 0 3px var(--accent) !important; }
   .g-info.full { max-height: calc(100% - 16px); top: 8px; left: 8px; }
   .note-main .rich { min-height: 55vh; }
   .note-main .note-view { min-height: 50vh; }
+}
+/* ---------- 정리: 한 번 누르면 선택, ✎/더블클릭/F2 로 이름 바꾸기, ＋ 하위 추가 ---------- */
+.olist:focus { outline: none; }
+.orow { cursor: pointer; user-select: none; min-height: 38px; }
+.otext { flex: 1; min-width: 0; padding: 7px 4px; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.otext.empty { color: var(--muted2); font-style: italic; }
+.d0 .otext { font-weight: 700; font-size: 17px; }
+.d1 .otext { font-weight: 600; }
+.orow.sel { background: var(--accent-2); box-shadow: inset 3px 0 0 var(--accent); }
+.olist:focus .orow.sel { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.orow.editing-row .otitle { background: var(--card); box-shadow: 0 0 0 2px var(--accent); }
+.oacts { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+.oacts button { width: 28px; height: 28px; border: 0; border-radius: 8px; background: var(--bg2); color: var(--accent); font-size: 14px; font-weight: 600; display: grid; place-items: center; }
+.oacts button:hover { background: var(--accent); color: var(--accent-text); }
+.orow:hover .oacts, .orow.sel .oacts { opacity: 1; }
+@media (max-width: 860px) {
+  .oacts { opacity: 0; pointer-events: none; }
+  .orow.sel .oacts { opacity: 1; pointer-events: auto; }
+  .oacts button { width: 34px; height: 34px; font-size: 16px; }
+  .otext { font-size: 16px; padding: 9px 4px; }
+  .has-sel .tree-main { padding-bottom: 180px; }
 }
