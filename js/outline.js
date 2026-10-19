@@ -316,7 +316,7 @@ function renderDetail() {
   const det = $('#detail', el);
   const n = S.node(sel);
   if (!n) {
-    det.innerHTML = `<div class="d-empty muted"><p>왼쪽 항목의 <b>●</b>를 누르면<br>외울 것 · 문제 단서를 편집할 수 있어요.</p></div>`;
+    det.innerHTML = `<div class="d-empty muted"><p>왼쪽 항목의 <b>●</b>를 누르면<br>외울 것을 읽고 편집할 수 있어요.</p></div>`;
     return;
   }
   const p = S.path(sel);
