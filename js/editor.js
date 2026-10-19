@@ -124,7 +124,7 @@ function hideBubble() { if (bubble) bubble.hidden = true; }
 let active = null;
 
 // host 안에 편집기를 만든다. onChange(md) 는 내용이 바뀔 때마다 호출
-export function mount(host, md, onChange, { rows = 10 } = {}) {
+export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
   let raw = lsGet(RAW_KEY, false);
   host.innerHTML = `<div class="ed">${BAR}<div class="rich md big" contenteditable="true" data-ph="${esc(PLACEHOLDER)}" style="--rows:${rows}"></div><textarea class="input raw" rows="${rows}" hidden></textarea></div>`;
   const rich = host.querySelector('.rich');
@@ -200,6 +200,7 @@ export function mount(host, md, onChange, { rows = 10 } = {}) {
   rich.addEventListener('keydown', (e) => {
     if (composing(e)) return;
     const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); onSave?.(); return; }
     if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); cmd('bold'); return; }
     if (mod && e.key.toLowerCase() === 'h') { e.preventDefault(); cmd('mark'); return; }
     if (e.key === 'Tab') { e.preventDefault(); cmd(e.shiftKey ? 'outdent' : 'indent'); return; }
@@ -218,6 +219,7 @@ export function mount(host, md, onChange, { rows = 10 } = {}) {
   });
 
   ta.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); onSave?.(); return; }
     if (composing(e) || e.key !== 'Tab') return;
     e.preventDefault();
     const { selectionStart: s, value: v } = ta;

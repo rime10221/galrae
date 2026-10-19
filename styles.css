@@ -608,3 +608,37 @@ textarea.drop { box-shadow: 0 0 0 3px var(--accent) !important; }
 .judge.nav { color: var(--accent); background: var(--card); }
 .judge.nav:disabled { opacity: .35; }
 .judge.flipbtn { max-width: 160px; color: var(--text); }
+/* ---------- 외울 것이 주인공 ---------- */
+@media (min-width: 1101px) { .tree-wrap { grid-template-columns: minmax(340px, 1fr) minmax(480px, 1.2fr); } }
+.d-inner { min-height: 100%; }
+.note-main { flex: 1; display: flex; flex-direction: column; margin-top: 10px; }
+.note-head { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+.note-head > span:first-child { font-size: 15px; font-weight: 700; margin-right: auto; }
+.save-state { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.save-state[data-s="saved"] { color: var(--r3); }
+.icon-btn.small { width: 30px; height: 30px; font-size: 14px; }
+.note-main .note-view { flex: 1; min-height: 46vh; padding: 16px 18px; font-size: 16.5px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.note-main .d-note-host, .note-main .d-note-host .ed { flex: 1; display: flex; flex-direction: column; }
+.note-main .rich { flex: 1; min-height: 50vh; max-height: none; font-size: 16.5px; padding: 16px 18px; }
+.note-main .md-img, .gi-note .md-img { max-height: 520px; }
+/* 크게 보기 (전체 화면) */
+.detail.note-full { position: fixed; inset: 0; z-index: 60; height: auto; border: 0; background: var(--bg); }
+.detail.note-full .d-inner { max-width: 920px; margin: 0 auto; padding: 24px 28px 40px; min-height: 100vh; }
+.detail.note-full .note-main .rich, .detail.note-full .note-main .note-view { min-height: 72vh; font-size: 18px; }
+.detail.note-full .d-field:not(.note-main), .detail.note-full .d-actions { display: none; }
+
+/* 마인드맵 노트 카드도 넓게 */
+.g-info { width: 500px; }
+.g-info .rich { min-height: 42vh; max-height: none; font-size: 16px; }
+.gi-note { min-height: 120px; }
+.gi-save { justify-content: flex-end; align-items: center; }
+.gi-save .save-state { margin-right: auto; }
+.g-info.full { width: auto; left: 14px; }
+.g-info.full .rich { min-height: 62vh; font-size: 17.5px; }
+.g-info.full .gi-note .md.big { font-size: 18px; }
+@media (max-width: 860px) {
+  .g-info { width: auto; }
+  .g-info.full { max-height: calc(100% - 16px); top: 8px; left: 8px; }
+  .note-main .rich { min-height: 55vh; }
+  .note-main .note-view { min-height: 50vh; }
+}

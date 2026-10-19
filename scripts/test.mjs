@@ -78,18 +78,22 @@ const H = `
     out.richRoundtrip = rich.querySelectorAll('mark').length >= 5 && rich.querySelectorAll('[data-li="1"]').length === 6;
     endOf(rich.lastElementChild);
     document.execCommand('insertParagraph'); document.execCommand('insertText', false, '메모 형광펜');
-    await sleep(450);
+    await sleep(800);
     out.noteSaved = S.node(gdm).note.includes('메모 형광펜');
     // 드래그(선택) 후 형광펜 버튼 → ==..== 로 저장, 기호를 직접 칠 필요 없음
     const last = rich.lastElementChild;
     const tn = [...last.childNodes].find((n) => n.nodeType === 3 && n.nodeValue.includes('형광펜'));
     const rg = document.createRange(); rg.setStart(tn, tn.nodeValue.indexOf('형광펜')); rg.setEnd(tn, tn.nodeValue.indexOf('형광펜') + 3);
     getSelection().removeAllRanges(); getSelection().addRange(rg);
-    click($('.d-note-host .ed-bar [data-ed="mark"]')); await sleep(450);
+    click($('.d-note-host .ed-bar [data-ed="mark"]')); await sleep(800);
     out.markBtn = S.node(gdm).note.includes('==형광펜==');
     const wasList = /\n- 메모 ==형광펜==/.test(S.node(gdm).note);
-    click($('.d-note-host .ed-bar [data-ed="list"]')); await sleep(450);
+    click($('.d-note-host .ed-bar [data-ed="list"]')); await sleep(800);
     out.listBtn = /\n- 메모 ==형광펜==/.test(S.node(gdm).note) !== wasList;
+    endOf($('.d-note-host .rich').lastElementChild); document.execCommand('insertText', false, ' 즉시');
+    click($('.detail [data-act="save"]')); await sleep(50);
+    out.saveBtn = S.node(gdm).note.includes('즉시') && !!$('.detail .note-view');
+    click($('.detail [data-act="edit"]')); await sleep(30);
     const im = S.importOutline('# 내과\n## 순환기\n- 심부전\n\t> - BNP\n\t? 호흡곤란\n- 부정맥', null);
     const im2 = S.importOutline('# 내과\n## 순환기\n- 심부전\n- 판막', null);
     out.import = im.added === 4 && im2.added === 1 && im2.merged === 3;
@@ -213,6 +217,7 @@ const H = `
   ok('편집기: 입력 저장', r.noteSaved);
   ok('편집기: 선택 후 형광펜 버튼', r.markBtn);
   ok('편집기: 목록 버튼', r.listBtn);
+  ok('편집기: 저장 버튼(즉시 저장 후 읽기 화면)', r.saveBtn);
   ok('텍스트 가져오기 + 합치기', r.import);
   ok('정리: 외울 것 토글(기본 접힘·모두 펼치기·하나 접기)', r.inlineNotes);
   ok('사진: 붙여넣기 저장', r.imgSaved);

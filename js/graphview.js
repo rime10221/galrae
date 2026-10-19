@@ -223,7 +223,7 @@ function links() {
 // ---------- 노트 카드 (선택한 갈래의 외울 것을 크게, 그 자리에서 편집) ----------
 let editing = false;
 let gEd = null;
-const saveNote = debounce((id, v) => S.as('graph-edit', () => S.updateNode(id, { note: v })), 350);
+const saveNote = debounce((id, v, done) => { S.as('graph-edit', () => S.updateNode(id, { note: v })); done?.(); }, 600);
 const saveTitle = debounce((id, v) => S.as('graph-edit', () => S.updateNode(id, { title: v })), 300);
 
 function showInfo(id) {
@@ -242,12 +242,13 @@ function showInfo(id) {
   box.innerHTML = `<button class="gi-grab" data-act="grow" aria-label="크게 보기"></button>
     <div class="gi-head">
       <div class="crumbs">${p.slice(0, -1).map((x) => `<a data-focus="${x.id}">${esc(x.title)}</a>`).join('<i>›</i>') || `<span class="muted">${esc(S.levelName(1))}</span>`}</div>
+      <button class="icon-btn" data-act="full" title="크게 보기">${box.classList.contains('full') ? '⤡' : '⤢'}</button>
       <button class="icon-btn" data-act="close" title="닫기">✕</button>
     </div>
     ${editing
       ? `<input class="input gi-title-in" value="${esc(n.title)}" placeholder="제목">
          <div class="gi-note-host"></div>
-         <div class="gi-actions"><button class="btn primary" data-act="done">완료</button></div>`
+         <div class="gi-actions gi-save"><span class="save-state" id="gSaveState">자동 저장돼요</span><button class="btn primary" data-act="done" title="저장 (Ctrl+S)">저장</button></div>`
       : `<h2 class="gi-title">${esc(n.title || '제목 없음')}${n.star ? ' <span class="st">★</span>' : ''}</h2>
          <div class="gi-sub muted small">${esc(S.levelName(p.length))}${sibs.length > 1 ? ` · 같은 층 ${sibs.length}가지 중 ${sibs.indexOf(id) + 1}번째` : ''}</div>
          <div class="gi-note ${note ? '' : 'empty'}" data-act="edit">${note ? `<div class="md big">${renderMd(note)}</div>` : '<p class="muted">외울 것이 없어요. 눌러서 추가</p>'}</div>
@@ -263,7 +264,8 @@ function showInfo(id) {
            <button class="btn small ghost" data-act="local">${local ? '전체 보기' : '주변만'}</button>
          </div>`}`;
   if (editing) {
-    gEd = Ed.mount($('.gi-note-host', box), n.note || '', (v) => saveNote(id, v), { rows: 12 });
+    const st = (t) => { const s = $('#gSaveState', box); if (s) s.textContent = t; };
+    gEd = Ed.mount($('.gi-note-host', box), n.note || '', (v) => { st('저장 중…'); saveNote(id, v, () => st('저장됨 ✓')); }, { rows: 16, onSave: () => { flushEdit(); st('저장됨 ✓'); api.toast('저장했어요', { ms: 1200 }); } });
     const ti = $('.gi-title-in', box);
     ti.addEventListener('input', () => saveTitle(id, ti.value));
   }
@@ -279,7 +281,14 @@ function onInfoClick(e) {
     case 'close': flushEdit(); g.select(null); showInfo(null); if (local) { local = false; refresh(true); } return;
     case 'grow': $('#gInfo', el).classList.toggle('grown'); return;
     case 'edit': editing = true; showInfo(g.sel); gEd?.focus(); return;
-    case 'done': flushEdit(); editing = false; refresh(); return showInfo(g.sel);
+    case 'done': flushEdit(); editing = false; refresh(); api.toast('저장했어요', { ms: 1200 }); return showInfo(g.sel);
+    case 'cancel-edit': flushEdit(); editing = false; refresh(); return showInfo(g.sel);
+    case 'full': {
+      const box = $('#gInfo', el);
+      box.classList.toggle('full');
+      b.textContent = box.classList.contains('full') ? '⤡' : '⤢';
+      return;
+    }
     case 'train': return api.train(g.sel);
     case 'tree': return api.go('tree', g.sel);
     case 'local': local = !local; refresh(true); return showInfo(g.sel);

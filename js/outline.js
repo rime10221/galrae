@@ -333,11 +333,14 @@ function renderDetail() {
     </div>
     <input class="d-title input" value="${esc(n.title)}" placeholder="제목">
     <div class="d-sub muted small">Lv${p.length} · ${esc(S.levelName(p.length))} · 하위 ${kids.length} · 전체 하위 ${S.descendants(sel).length - 1}</div>
-    <div class="d-field">
-      <div class="d-label"><span>외울 것 · 주요 내용</span>
-        <div class="seg tiny"><button class="${preview ? '' : 'on'}" data-act="edit">편집</button><button class="${preview ? 'on' : ''}" data-act="preview">보기</button></div></div>
+    <div class="d-field note-main">
+      <div class="d-label note-head"><span>외울 것</span>
+        <span class="save-state" id="saveState">${preview ? '' : '자동 저장돼요'}</span>
+        <div class="seg tiny"><button class="${preview ? '' : 'on'}" data-act="edit">편집</button><button class="${preview ? 'on' : ''}" data-act="preview">보기</button></div>
+        <button class="icon-btn small" data-act="full" title="크게 보기">${$('#detail', el).classList.contains('note-full') ? '✕' : '⤢'}</button>
+        ${preview ? '' : '<button class="btn primary small" data-act="save" title="저장 (Ctrl+S)">저장</button>'}</div>
       ${preview
-        ? `<div class="md note-view" data-act="edit">${renderMd(n.note) || '<span class="muted">비어 있어요. 눌러서 편집</span>'}</div>`
+        ? `<div class="md big note-view" data-act="edit">${renderMd(n.note) || '<span class="muted">비어 있어요. 눌러서 외울 것을 적어 보세요 (사진도 넣을 수 있어요)</span>'}</div>`
         : `<div class="d-note-host"></div>`}
     </div>
     <div class="d-field">
@@ -356,10 +359,26 @@ function renderDetail() {
   </div>`;
   const host = $('.d-note-host', det);
   const id = sel;
-  noteEd = host ? Ed.mount(host, n.note || '', (v) => saveNote(id, v), { rows: 12 }) : null;
+  noteEd = host ? Ed.mount(host, n.note || '', (v) => { saveState('dirty'); saveNote(id, v); }, { rows: 16, onSave: () => saveNow(true) }) : null;
 }
 
-const saveNote = debounce((id, v) => S.as('detail', () => S.updateNode(id, { note: v })), 350);
+const saveNote = debounce((id, v) => { S.as('detail', () => S.updateNode(id, { note: v })); saveState('saved'); }, 600);
+
+// 저장 상태 표시: 바뀌면 '저장 중…', 저장되면 '저장됨 ✓'
+function saveState(s) {
+  const box = $('#saveState', el);
+  if (!box) return;
+  box.dataset.s = s;
+  box.textContent = s === 'dirty' ? '저장 중…' : s === 'saved' ? '저장됨 ✓' : '';
+}
+
+// 저장 버튼 / Ctrl+S: 바로 저장 (버튼은 저장 후 읽기 화면으로)
+function saveNow(stay = false) {
+  flushDetail();
+  saveState('saved');
+  toast('저장했어요', { ms: 1200 });
+  if (!stay) { preview = true; lsSet('galrae.v1.notePreview', true); renderDetail(); }
+}
 const saveCues = debounce((id, v) => S.as('detail', () => S.updateNode(id, { cues: v.split('\n').map((x) => x.trim()).filter(Boolean) })), 350);
 const saveTitle = debounce((id, v) => S.as('detail', () => S.updateNode(id, { title: v })), 300);
 
@@ -388,6 +407,13 @@ async function onDetailClick(e) {
     case 'star': S.as('outline', () => S.updateNode(sel, { star: !n.star })); render(); return;
     case 'edit': if (preview) { flushDetail(); preview = false; lsSet('galrae.v1.notePreview', false); renderDetail(); noteEd?.focus(); } return;
     case 'preview': flushDetail(); preview = true; lsSet('galrae.v1.notePreview', true); return renderDetail();
+    case 'save': return saveNow();
+    case 'full': {
+      const det = $('#detail', el);
+      det.classList.toggle('note-full');
+      b.textContent = det.classList.contains('note-full') ? '✕' : '⤢';
+      return;
+    }
     case 'add-child': return addChild(sel);
     case 'train': return api.train(sel);
     case 'graph': return api.go('graph', sel);
