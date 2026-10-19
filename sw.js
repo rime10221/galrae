@@ -1,5 +1,6 @@
 ﻿// 오프라인 지원: 앱 파일은 캐시 우선 + 백그라운드 갱신, Google API는 항상 네트워크
-const CACHE = 'galrae-v13';
+// 새 버전을 설치할 때는 브라우저 HTTP 캐시를 거치지 않고 서버에서 받는다
+const CACHE = 'galrae-v14';
 const ASSETS = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/util.js', 'js/store.js', 'js/sync.js', 'js/train.js', 'js/outline.js', 'js/graph.js', 'js/graphview.js', 'js/images.js', 'js/editor.js',
@@ -7,7 +8,7 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -21,7 +22,8 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     caches.open(CACHE).then(async (c) => {
       const hit = await c.match(e.request, { ignoreSearch: true });
-      const net = fetch(e.request).then((r) => { if (r.ok) c.put(e.request, r.clone()); return r; }).catch(() => hit);
+      // 브라우저 HTTP 캐시(GitHub Pages 10분)를 건너뛰고 서버에 확인
+      const net = fetch(e.request, { cache: 'no-cache' }).then((r) => { if (r.ok) c.put(e.request, r.clone()); return r; }).catch(() => hit);
       return hit || net;
     }),
   );

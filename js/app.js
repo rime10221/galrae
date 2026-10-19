@@ -61,7 +61,17 @@ function boot() {
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
   route();
   setTimeout(showInstallBar, 1500);
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    // 새 버전이 설치되어 화면을 넘겨받으면 한 번 새로고침 (처음 설치 때는 제외)
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded) return;
+      reloaded = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
+  }
 }
 
 function applyTheme() {
