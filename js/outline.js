@@ -1,4 +1,4 @@
-// 트리(개요) 편집기 + 상세 패널
+﻿// 트리(개요) 편집기 + 상세 패널
 // Enter 새 항목 · Tab 들여쓰기 · Shift+Tab 내어쓰기 · Alt+↑↓ 이동 · Ctrl+Enter 상세 · 빈 줄에서 Backspace 삭제
 import * as S from './store.js';
 import { $, $$, esc, debounce, renderMd, lsGet, lsSet, composing, toast, confirmDlg, openDialog } from './util.js';
@@ -6,7 +6,8 @@ import { $, $$, esc, debounce, renderMd, lsGet, lsSet, composing, toast, confirm
 let el, api;
 let sel = null;          // 상세 패널에 열린 노드
 let filter = '';
-let preview = lsGet('galrae.v1.notePreview', false);
+let preview = lsGet('galrae.v1.notePreview', true);
+let showNotes = lsGet('galrae.v1.showNotes', true); // 트리에서 외울 것을 줄 아래에 펼쳐 보기
 let collapsed = new Set(lsGet('galrae.v1.collapsed', []));
 const saveCollapsed = () => lsSet('galrae.v1.collapsed', [...collapsed]);
 
@@ -18,6 +19,7 @@ export function init(root, hooks) {
       <div class="toolbar">
         <input class="input search" id="treeFilter" placeholder="갈래 · 내용 · 단서 검색" type="search">
         <div class="tb-btns">
+          <button class="btn small ${showNotes ? 'primary' : ''}" data-act="notes" id="notesBtn" title="외울 것을 트리에 펼쳐 보기">외울 것 보기</button>
           <button class="btn small" data-act="expand-all" title="모두 펼치기">펼치기</button>
           <button class="btn small" data-act="collapse-all" title="모두 접기">접기</button>
           <button class="btn small" data-act="import">가져오기</button>
@@ -117,6 +119,7 @@ function renderList() {
       <button class="bullet ${closed && kids.length ? 'has' : ''}" data-act="open" tabindex="-1" aria-label="상세"></button>
       <input class="otitle" value="${esc(n.title)}" placeholder="제목 없음" enterkeyhint="next" autocomplete="off">
       <span class="ometa">${meta}</span></div>`);
+    if (showNotes && n.note?.trim()) rows.push(`<div class="onote md" data-note="${id}" style="--d:${d}">${renderMd(n.note)}</div>`);
     if (!closed) for (const k of kids) walk(k, d + 1);
   };
   S.roots().forEach((r) => walk(r, 0));
@@ -204,6 +207,8 @@ function openDetail(id) {
 }
 
 function onListClick(e) {
+  const nt = e.target.closest('[data-note]');
+  if (nt) return openDetail(nt.dataset.note);
   const b = e.target.closest('[data-act]');
   if (!b) return;
   if (b.dataset.act === 'add-root') return addRoot();
@@ -278,6 +283,10 @@ function onToolbar(e) {
   const b = e.target.closest('[data-act]');
   if (!b) return;
   switch (b.dataset.act) {
+    case 'notes':
+      showNotes = !showNotes; lsSet('galrae.v1.showNotes', showNotes);
+      b.classList.toggle('primary', showNotes);
+      return renderList();
     case 'expand-all': collapsed.clear(); saveCollapsed(); return renderList();
     case 'collapse-all':
       for (const id of S.descendants(null)) if (S.children(id).length && S.depth(id) >= 1) collapsed.add(id);
@@ -299,7 +308,7 @@ function renderDetail() {
   }
   const p = S.path(sel);
   const kids = S.children(sel);
-  const modes = { full: '종합', expand: '하위 펼치기', locate: '위치 찾기', recall: '내용 회상', cue: '문제→분류' };
+  const modes = { card: '카드' };
   const stats = Object.entries(modes).map(([m, name]) => {
     const pr = S.prog(`${sel}|${m}`);
     return pr ? `<span class="pstat"><b>${name}</b> ${'●'.repeat(pr.b)}${'○'.repeat(5 - pr.b)} <small>${pr.ok}/${pr.n}</small></span>` : '';
@@ -318,10 +327,6 @@ function renderDetail() {
       ${preview
         ? `<div class="md note-view" data-act="edit">${renderMd(n.note) || '<span class="muted">비어 있어요. 눌러서 편집</span>'}</div>`
         : `<textarea class="d-note input" rows="9" placeholder="- 목록은 '- '로 시작 (Tab으로 들여쓰기)\n==강조== → 내용 회상 모드에서 빈칸\n**굵게**, [[다른 갈래]] 링크, -> 화살표">${esc(n.note || '')}</textarea>`}
-    </div>
-    <div class="d-field">
-      <div class="d-label"><span>문제 단서 <small class="muted">한 줄에 하나 · '문제 → 분류' 카드가 돼요</small></span></div>
-      <textarea class="d-cues input" rows="3" placeholder="예) 임신 26주, 50g GCT 1시간 혈당 165 mg/dL">${esc((n.cues || []).join('\n'))}</textarea>
     </div>
     <div class="d-field">
       <div class="d-label"><span>하위 갈래 ${kids.length}</span><button class="link" data-act="add-child">+ 하위 추가</button></div>

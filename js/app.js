@@ -21,7 +21,7 @@ const ICONS = {
   sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" class="ic" aria-hidden="true">${ICONS[n]}</svg>`;
-const LABELS = { home: '홈', train: '트레이닝', graph: '그래프', tree: '트리', settings: '설정' };
+const LABELS = { home: '홈', train: '카드', graph: '그래프', tree: '트리', settings: '설정' };
 
 // ---------- 시작 ----------
 if (!Sync.handleAuthReturn()) boot();
@@ -143,46 +143,30 @@ function renderHome() {
   const el = $('#view-home');
   const mm = S.masteryMap();
   const roots = S.roots();
-  const due = S.dueKeys().length;
   const ses = Train.sessionInfo();
   const resume = Train.hasSession();
-  const progN = Object.keys(S.getData().progress).length;
   el.innerHTML = `<div class="page">
     <header class="home-h">
-      <div><h1>갈래</h1><p class="sub">문제를 보면 먼저 <b>어느 갈래</b>인지, 그 <b>경우의 수</b>와 <b>외울 것</b>을 떠올리는 연습</p></div>
+      <div><h1>갈래</h1><p class="sub">오늘 ${S.todayCount()}장 · 연속 ${S.streak()}일</p></div>
     </header>
-    ${resume ? `<section class="panel resume"><div><b>이어서 하기</b><span class="muted">${esc(ses.opts.title || Train.MODES[ses.opts.mode]?.name || '')} · ${ses.i} / ${ses.cards.length}</span></div><button class="btn primary" data-act="resume">계속 ▶</button></section>` : ''}
-    <section class="quick">
-      <button class="qa qa-due" data-act="due" ${due ? '' : 'disabled'}><b>${due}</b><span>오늘 복습할 카드</span></button>
-      <button class="qa" data-act="quick"><b class="qa-ic">${icon('bolt')}</b><span>빠른 20장 (섞기)</span></button>
-      <button class="qa" data-act="setup"><b class="qa-ic">${icon('sliders')}</b><span>범위·레벨 정해서</span></button>
-    </section>
-    <section class="stats">
-      <div><b>${S.count()}</b><span>갈래</span></div>
-      <div><b>${progN}</b><span>학습한 카드</span></div>
-      <div><b>${S.todayCount()}</b><span>오늘 푼 카드</span></div>
-      <div><b>${S.streak()}</b><span>연속 학습일</span></div>
-    </section>
-    ${!S.settings.tipsHidden ? `<section class="panel tips">
-      <div class="panel-h"><h3>이렇게 써보세요</h3><button class="link" data-act="hide-tips">닫기</button></div>
-      <ol>
-        <li><b>트리</b>에서 과목 › 대단원 › 중단원… 순으로 갈래를 만들어요. 교재 목차를 <a data-act="import">텍스트로 붙여넣기</a>하면 한 번에 들어가요.</li>
-        <li>각 갈래의 ●를 눌러 <b>외울 것</b>(<code>==강조==</code>는 회상 카드에서 빈칸)과 <b>문제 단서</b>를 적어요.</li>
-        <li><b>트레이닝</b>에서 범위와 레벨을 고르면 낱말카드가 무작위로 나와요. 정답을 보면 <b>분류 경로와 같은 층의 경우의 수</b>가 사다리처럼 펼쳐져요.</li>
-        <li><b>그래프</b>에서 전체 구조를 옵시디언처럼 훑어보고, 숙련도 색으로 약한 갈래를 찾아요.</li>
-      </ol></section>` : ''}
+    ${resume ? `<section class="panel resume" data-act="resume"><div><b>이어서 학습</b><span class="muted">${esc(ses.title)} · ${ses.i} / ${ses.cards.length}</span></div><button class="btn primary">계속</button></section>` : ''}
     <section class="subjects">
-      <div class="panel-h"><h2>과목</h2><button class="btn small" data-act="add-subject">+ 과목</button></div>
-      <div class="subj-grid">${roots.map((r) => {
+      ${roots.map((r) => {
         const n = S.node(r);
         const st = S.subtreeStats(r, mm);
+        const counts = Train.levelCounts([r]);
+        const lv = [...counts.keys()].sort((a, b) => a - b);
         return `<div class="subj">
-          <div class="subj-top"><b>${esc(n.title || '제목 없음')}</b><small class="muted">${st.count}개 갈래 · ${S.children(r).length}개 대단원</small></div>
-          <div class="meter" title="학습 범위 ${Math.round(st.coverage * 100)}% · 평균 숙련도 ${Math.round(st.mastery * 100)}%"><i style="width:${st.coverage * 100}%;--m:${st.mastery}"></i></div>
-          <div class="subj-sub muted small">학습 ${Math.round(st.coverage * 100)}% · 숙련 ${Math.round(st.mastery * 100)}%</div>
-          <div class="subj-act"><button class="btn small primary" data-train="${r}">학습</button><button class="btn small" data-graph="${r}">그래프</button><button class="btn small" data-tree="${r}">편집</button></div>
+          <div class="subj-top">
+            <div><b>${esc(n.title || '제목 없음')}</b><small class="muted">${st.count}개 갈래 · 숙련 ${Math.round(st.mastery * 100)}%</small></div>
+            <div class="subj-icons"><button class="icon-btn" data-graph="${r}" title="그래프">${icon('graph')}</button><button class="icon-btn" data-tree="${r}" title="편집">${icon('tree')}</button></div>
+          </div>
+          <div class="meter"><i style="width:${st.coverage * 100}%;--m:${st.mastery}"></i></div>
+          <div class="subj-levels">${lv.map((d) => `<button class="lv-start" data-start="${r}" data-lv="${d}"><b>${esc(S.levelName(d))}</b><span>${counts.get(d)}장</span></button>`).join('')}
+            ${lv.length > 1 ? `<button class="lv-start all" data-start="${r}"><b>전체</b><span>${[...counts.values()].reduce((a, b) => a + b, 0)}장</span></button>` : ''}</div>
         </div>`;
-      }).join('') || '<p class="muted">아직 과목이 없어요.</p>'}</div>
+      }).join('') || `<div class="panel empty"><p>아직 과목이 없어요.</p><button class="btn primary" data-act="add-subject">+ 과목 만들기</button> <button class="btn" data-act="import">텍스트로 가져오기</button></div>`}
+      ${roots.length ? '<div class="home-more"><button class="btn ghost" data-act="add-subject">+ 과목</button><button class="btn ghost" data-act="import">텍스트로 가져오기</button></div>' : ''}
     </section>
     <footer class="home-foot"><span id="homeSync"></span></footer>
   </div>`;
@@ -191,17 +175,16 @@ function renderHome() {
 }
 
 async function onHomeClick(e) {
-  const b = e.target.closest('[data-act],[data-train],[data-graph],[data-tree]');
+  const b = e.target.closest('[data-act],[data-start],[data-graph],[data-tree]');
   if (!b) return;
-  if (b.dataset.train) return trainScope(b.dataset.train);
+  if (b.dataset.start) {
+    if (Train.hasSession() && !(await confirmDlg('진행 중인 학습을 닫고 새로 시작할까요?', { ok: '새로 시작' }))) return;
+    return Train.start([b.dataset.start], b.dataset.lv ? [+b.dataset.lv] : []);
+  }
   if (b.dataset.graph) return go('graph', b.dataset.graph);
   if (b.dataset.tree) return go('tree', b.dataset.tree);
   switch (b.dataset.act) {
     case 'resume': return go('train');
-    case 'due': return Train.startDue();
-    case 'quick': return Train.startQuick();
-    case 'setup': return go('train');
-    case 'hide-tips': S.saveSettings({ tipsHidden: true }); return renderHome();
     case 'import': return importDialog(null);
     case 'add-subject': {
       const id = S.addNode({ parent: null, title: '새 과목' });
@@ -239,8 +222,6 @@ function renderSettings() {
     </section>
     <section class="panel">
       <h3>학습</h3>
-      <label class="check"><input type="checkbox" data-set="requeueAgain" ${st.requeueAgain ? 'checked' : ''}> '다시' 누른 카드는 세션 안에서 몇 장 뒤에 다시 보기</label>
-      <label class="check"><input type="checkbox" data-set="showCount" ${st.showCount ? 'checked' : ''}> 하위 펼치기에서 개수와 빈칸 보여주기</label>
       <div class="kv"><span>카드 글자 크기</span><div class="seg" data-seg="cardScale">${[[0.9, '작게'], [1, '보통'], [1.15, '크게'], [1.3, '아주 크게']].map(([v, l]) => `<button class="${st.cardScale == v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div></div>
       <div class="btn-row"><button class="btn ghost danger" data-act="reset-progress">학습 기록 초기화</button></div>
     </section>
@@ -252,7 +233,6 @@ function renderSettings() {
     <section class="panel">
       <h3>화면</h3>
       <div class="kv"><span>테마</span><div class="seg" data-seg="theme">${[['system', '시스템'], ['light', '밝게'], ['dark', '어둡게']].map(([v, l]) => `<button class="${st.theme === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div></div>
-      <label class="check"><input type="checkbox" data-set="tipsShown" ${!st.tipsHidden ? 'checked' : ''}> 홈에 사용 팁 보이기</label>
     </section>
     <section class="panel">
       <h3>데이터</h3>
@@ -270,18 +250,18 @@ function renderSettings() {
       <h3>단축키</h3>
       <div class="keys">
         <div><kbd>Ctrl</kbd><kbd>K</kbd> 또는 <kbd>/</kbd><span>갈래 찾기</span></div>
-        <div><kbd>Space</kbd><span>정답 보기</span></div>
-        <div><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><span>다시 · 애매 · 알았음</span></div>
+        <div><kbd>Space</kbd><span>카드 뒤집기</span></div>
+        <div><kbd>←</kbd><kbd>→</kbd><span>몰라요 · 알아요</span></div>
         <div><kbd>Z</kbd><span>되돌리기</span></div>
-        <div><kbd>Esc</kbd><span>세션 끝내기</span></div>
+        <div><kbd>Esc</kbd><span>학습 끝내기</span></div>
         <div><kbd>Enter</kbd><span>트리: 새 항목</span></div>
         <div><kbd>Tab</kbd><kbd>⇧Tab</kbd><span>트리: 들여/내어쓰기</span></div>
         <div><kbd>Alt</kbd><kbd>↑↓</kbd><span>트리: 순서 이동</span></div>
         <div><kbd>Ctrl</kbd><kbd>Enter</kbd><span>트리: 상세 열기</span></div>
       </div>
-      <p class="muted small">모바일: 정답을 본 뒤 카드를 오른쪽으로 밀면 알았음, 왼쪽은 다시.</p>
+      <p class="muted small">모바일: 카드를 눌러 뒤집고, 오른쪽으로 밀면 알아요 · 왼쪽은 몰라요.</p>
     </section>
-    <p class="muted small center">갈래 v1 · 데이터 ${S.count()}개 갈래</p>
+    <p class="muted small center">갈래 v2 · 데이터 ${S.count()}개 갈래</p>
   </div>`;
 }
 
@@ -327,7 +307,6 @@ function onSettingsChange(e) {
   if (k === 'auto') Sync.setOptions({ auto: t.checked });
   else if (k === 'clientId') Sync.setOptions({ clientId: t.value.trim() });
   else if (k === 'levelNames') S.saveSettings({ levelNames: t.value.split(',').map((x) => x.trim()).filter(Boolean) });
-  else if (k === 'tipsShown') S.saveSettings({ tipsHidden: !t.checked });
   else S.saveSettings({ [k]: t.checked });
   toast('저장했어요', { ms: 1200 });
 }

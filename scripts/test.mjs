@@ -1,4 +1,4 @@
-// 브라우저 스모크 테스트: npm test   ·   스크린샷까지: npm run shots (→ .shots/)
+﻿// 브라우저 스모크 테스트: npm test   ·   스크린샷까지: npm run shots (→ .shots/)
 import { mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,6 +71,7 @@ const H = `
     out.backspaceDel = !S.node(nid);
     const gdm = S.findByTitle('임신과 당뇨병');
     await go('#tree/' + gdm);
+    if (!$('.d-note')) { click($('.detail [data-act="edit"]')); await sleep(20); }
     const ta = $('.d-note');
     ta.value += '\n- 메모 [[임신과 감염질환]]'; ta.dispatchEvent(new Event('input', { bubbles: true }));
     await sleep(450);
@@ -78,30 +79,37 @@ const H = `
     const im = S.importOutline('# 내과\n## 순환기\n- 심부전\n\t> - BNP\n\t? 호흡곤란\n- 부정맥', null);
     const im2 = S.importOutline('# 내과\n## 순환기\n- 심부전\n- 판막', null);
     out.import = im.added === 4 && im2.added === 1 && im2.merged === 3;
-    out.modes = {};
-    for (const mode of ['full', 'expand', 'locate', 'recall', 'cue', 'mix']) {
-      await go('#train');
-      const setup = $('#view-train [data-act="setup"]'); if (setup) click(setup);
-      await sleep(20);
-      click($(`#view-train [data-mode="${mode}"]`)); await sleep(10);
-      click($('#view-train [data-seg="count"] [data-v="10"]')); await sleep(10);
-      click($('#view-train [data-act="start"]')); await sleep(40);
-      let steps = 0, good = true;
-      while ($('#flash') && steps < 40) {
-        if (!$('.front').textContent.trim()) good = false;
-        key(document.body, ' '); await sleep(5);
-        if (!$('.answer')) { good = false; break; }
-        key(document.body, String(1 + (steps % 3))); await sleep(5);
-        steps++;
-      }
-      out.modes[mode] = good && steps > 0 && !!$('#view-train [data-act="again-same"]');
+    out.inlineNotes = (await (async () => { await go('#tree'); return $$('.onote').length; })()) >= 2;
+    // 카드 학습: 레벨 고르기 → 앞면/뒷면 → 몰라요/알아요
+    await go('#train');
+    const lvBtn = $('#view-train [data-level="3"]');
+    click(lvBtn); await sleep(20);
+    const expected = S.descendants(null).filter((x) => S.depth(x) === 3 && ((S.node(x).note || '').trim() || S.children(x).length)).length;
+    out.deckCount = +$('.deck-n b').textContent === expected;
+    click($('#view-train [data-act="start"]')); await sleep(40);
+    let steps = 0, backOk = true, flipOk = true;
+    while ($('#flash') && steps < 30) {
+      const id = JSON.parse(localStorage.getItem('galrae.v2.session')).cards[steps];
+      key(document.body, ' '); await sleep(5);
+      if (!$('#flash').classList.contains('flipped')) flipOk = false;
+      const hasNote = !!(S.node(id).note || '').trim();
+      if (hasNote && !$('.back .md')) backOk = false;
+      if (!hasNote && !$('.back .kid-list')) backOk = false;
+      key(document.body, steps % 2 ? 'ArrowRight' : 'ArrowLeft'); await sleep(200);
+      steps++;
     }
-    click($('#view-train [data-act="again-same"]')); await sleep(30);
-    key(document.body, ' '); await sleep(5); key(document.body, '3'); await sleep(5);
-    const before = $('.count').textContent;
-    key(document.body, 'z'); await sleep(10);
-    out.undo = before !== $('.count').textContent && !!$('.answer');
-    // 그래프: 마인드맵 정렬 확인
+    out.card = { steps: steps === expected, flipOk, backOk, summary: !!$('#view-train [data-act="retry"]') };
+    click($('#view-train [data-act="retry"]')); await sleep(40);
+    out.retry = JSON.parse(localStorage.getItem('galrae.v2.session')).cards.length === Math.ceil(expected / 2);
+    key(document.body, 'ArrowRight'); await sleep(200);
+    const before = JSON.parse(localStorage.getItem('galrae.v2.session')).i;
+    key(document.body, 'z'); await sleep(20);
+    out.undo = before === 1 && JSON.parse(localStorage.getItem('galrae.v2.session')).i === 0;
+    // 홈에서 레벨 버튼으로 바로 시작
+    await go('#home');
+    click($('#view-home [data-lv="2"]')); await sleep(60);
+    const dlg = document.querySelector('dialog'); if (dlg) { click(dlg.querySelector('[data-close="ok"]')); await sleep(60); }
+    out.homeStart = location.hash === '#train' && !!$('#flash') && JSON.parse(localStorage.getItem('galrae.v2.session')).cards.every((x) => S.depth(x) === 2);    // 그래프: 마인드맵 정렬 확인
     await go('#graph');
     await sleep(900);
     const GV = await import('./js/graphview.js');
@@ -138,8 +146,15 @@ const H = `
   ok('트리: 빈 항목 Backspace 삭제', r.backspaceDel);
   ok('상세: 외울 것 저장', r.noteSaved);
   ok('텍스트 가져오기 + 합치기', r.import);
-  for (const [m, v] of Object.entries(r.modes)) ok(`트레이닝: ${m}`, v);
-  ok('되돌리기', r.undo);
+  ok('트리: 외울 것 펼쳐 보기', r.inlineNotes);
+  ok('카드: 레벨별 장수', r.deckCount);
+  ok('카드: 끝까지 진행', r.card.steps);
+  ok('카드: 뒤집기', r.card.flipOk);
+  ok('카드: 뒷면 = 외울 것 또는 하위 목록', r.card.backOk);
+  ok('카드: 결과 화면', r.card.summary);
+  ok('카드: 모르는 것만 다시', r.retry);
+  ok('카드: 되돌리기', r.undo);
+  ok('홈: 레벨 버튼으로 바로 시작', r.homeStart);
   ok('마인드맵: 하위 갈래는 항상 오른쪽 열', r.graph.colsOk);
   ok('마인드맵: 같은 깊이는 같은 열', r.graph.sameDepthSameX);
   ok('마인드맵: 형제는 순서대로 위→아래', r.graph.rowsOk);
@@ -161,18 +176,21 @@ if (SHOTS) {
     setup: async () => go('#train'),
     card: async (S) => {
       await go('#train');
-      click($('#view-train [data-mode="locate"]')); await sleep(20);
-      click($('#view-train [data-seg="order"] [data-v="tree"]')); await sleep(20);
+      const s = $('#view-train [data-act="setup"]'); if (s) click(s);
+      await sleep(20);
+      const lv = $('#view-train [data-level="3"]'); if (lv && !lv.classList.contains('on')) click(lv);
+      await sleep(20);
+      const sh = $('#view-train [data-opt="shuffle"]'); if (sh.checked) click(sh);
+      await sleep(20);
       click($('#view-train [data-act="start"]')); await sleep(40);
       const gdm = S.findByTitle('임신과 당뇨병');
       for (let i = 0; i < 20; i++) {
-        const ss = JSON.parse(localStorage.getItem('galrae.v1.session'));
-        if (ss.cards[ss.i].n === gdm) break;
-        key(document.body, ' '); await sleep(5); key(document.body, '3'); await sleep(5);
+        const ss = JSON.parse(localStorage.getItem('galrae.v2.session'));
+        if (ss.cards[ss.i] === gdm) break;
+        key(document.body, 'ArrowRight'); await sleep(220);
       }
-      key(document.body, ' ');
     },
-    settings: async () => go('#settings'),
+    cardBack: async () => { key(document.body, ' '); await sleep(600); },    settings: async () => go('#settings'),
   };
   const sizes = [['desk', { width: 1280, height: 820 }], ['phone', { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }]];
   for (const [sname, vp] of sizes) {

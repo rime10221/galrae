@@ -1,4 +1,4 @@
-// 공용 유틸: DOM, 저장소, 다이얼로그, 토스트, 간단 마크다운
+﻿// 공용 유틸: DOM, 저장소, 다이얼로그, 토스트, 간단 마크다운
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 export const now = () => Date.now();
@@ -149,6 +149,13 @@ export function inlineMd(s, opt = {}) {
   return x.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
 }
 
+const BULLETS = ['•', '◦', '▪'];
+// "항목: 내용" 형태는 항목 부분을 굵게 해서 한눈에 들어오게
+function keyed(text, opt) {
+  const m = text.match(/^([^:：/]{1,24}?)\s*[:：]\s+(.+)$/);
+  return m ? `<span class="md-k">${inlineMd(m[1], opt)}</span> ${inlineMd(m[2], opt)}` : inlineMd(text, opt);
+}
+
 export function renderMd(src, opt = {}) {
   const out = [];
   for (const raw of String(src || '').replace(/\r/g, '').split('\n')) {
@@ -161,11 +168,11 @@ export function renderMd(src, opt = {}) {
       out.push(`<div class="md-h md-h${m[1].length}">${inlineMd(m[2], opt)}</div>`);
     } else if ((m = t.match(/^([-*+•]|\d+[.)])\s+(.*)$/))) {
       const num = /\d/.test(m[1]);
-      out.push(`<div class="md-li" style="--lv:${lv}"><span class="md-b">${num ? esc(m[1]) : '•'}</span><span>${inlineMd(m[2], opt)}</span></div>`);
+      out.push(`<div class="md-li" style="--lv:${lv}" data-lv="${Math.min(lv, 2)}"><span class="md-b">${num ? esc(m[1]) : BULLETS[Math.min(lv, 2)]}</span><span>${keyed(m[2], opt)}</span></div>`);
     } else if ((m = t.match(/^>\s?(.*)$/))) {
       out.push(`<div class="md-q">${inlineMd(m[1], opt)}</div>`);
     } else {
-      out.push(`<div class="md-p" style="--lv:${lv}">${inlineMd(t, opt)}</div>`);
+      out.push(`<div class="md-p" style="--lv:${lv}">${keyed(t, opt)}</div>`);
     }
   }
   const gap = '<div class="md-gap"></div>';

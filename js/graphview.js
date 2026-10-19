@@ -203,9 +203,9 @@ function showInfo(id) {
       <button class="icon-btn" data-act="close">✕</button></div>
     <h3>${esc(n.title || '제목 없음')} ${n.star ? '<span class="st">★</span>' : ''}</h3>
     <div class="muted small">Lv${p.length} · ${esc(S.levelName(p.length))} · 같은 층 ${sibs.length}가지 중 ${sibs.indexOf(id) + 1}번째</div>
-    ${sibs.length > 1 ? `<div class="gi-sec"><h4>같은 층의 경우의 수</h4><div class="chips">${sibs.map((s) => `<button class="chip ${s === id ? 'on' : ''}" data-focus="${s}">${esc(S.node(s).title)}</button>`).join('')}</div></div>` : ''}
+    ${n.note?.trim() ? `<div class="gi-sec gi-note"><div class="md big">${renderMd(n.note)}</div></div>` : ''}
     ${kids.length ? `<div class="gi-sec"><h4>하위 ${kids.length}</h4><div class="chips">${kids.map((k) => `<button class="chip" data-focus="${k}">${esc(S.node(k).title)}</button>`).join('')}</div></div>` : ''}
-    ${n.note?.trim() ? `<div class="gi-sec"><h4>외울 것</h4><div class="md">${renderMd(n.note)}</div></div>` : ''}
+    ${sibs.length > 1 ? `<div class="gi-sec"><h4>같은 층 ${sibs.length}가지</h4><div class="chips">${sibs.map((s) => `<button class="chip ${s === id ? 'on' : ''}" data-focus="${s}">${esc(S.node(s).title)}</button>`).join('')}</div></div>` : ''}
     <div class="gi-actions"><button class="btn primary small" data-act="train">이 갈래 학습</button><button class="btn small" data-act="edit">편집</button><button class="btn small" data-act="local">${local ? '전체 보기' : '주변만'}</button></div>`;
 }
 
