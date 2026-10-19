@@ -2,6 +2,7 @@
 // 세트 = 아무 갈래 하나(그 아래 전체) 또는 '내 세트'(여러 범위를 묶어 저장).
 // 세트 안에서 레벨을 고르면 그 레벨 갈래가 카드가 된다. 앞면 = 이름, 뒷면 = 외울 것 또는 하위 목록.
 import * as S from './store.js';
+import * as Subject from './subject.js';
 import { $, esc, shuffle, renderMd, firstLine, lsGet, lsSet, now, confirmDlg, promptDlg, openDialog, toast } from './util.js';
 
 const SESSION_KEY = 'galrae.v2.session';
@@ -142,7 +143,8 @@ function renderLibrary() {
     </section>
     <section class="lib-sec">
       <div class="panel-h"><h3>갈래 세트</h3></div>
-      <input class="input search" id="libSearch" placeholder="세트 찾기" type="search" value="${esc(libQuery)}">
+      <div id="libTabs"></div>
+      <input class="input search" id="libSearch" placeholder="세트 찾기 (모든 과목)" type="search" value="${esc(libQuery)}">
       <div class="set-list tree" id="libList"></div>
     </section>
   </div>`;
@@ -153,6 +155,10 @@ function renderLibraryList() {
   const box = $('#libList', el);
   if (!box) return;
   if (!libSaved && !libOpen.size) S.roots().forEach((r) => libOpen.add(r)); // 처음엔 과목을 펼쳐서
+  // 과목은 탭으로 나누고 고른 과목만 (검색은 모든 과목에서)
+  const subj = Subject.current();
+  const tabs = $('#libTabs', el);
+  if (tabs) tabs.innerHTML = libQuery ? '' : Subject.tabsHtml(subj);
   const rows = [];
   const q = libQuery.toLowerCase();
   const row = (id, d) => {
@@ -168,7 +174,7 @@ function renderLibraryList() {
   };
   if (q) {
     for (const id of S.search(libQuery, 60)) if (cardsIn([id]).length) row(id, 0);
-  } else S.roots().forEach((r) => row(r, 0));
+  } else if (subj) { libOpen.add(subj); row(subj, 0); }
   box.innerHTML = rows.join('') || `<p class="muted small lib-empty">${q ? '찾는 세트가 없어요' : '정리 탭에서 갈래와 외울 것을 먼저 만들어 주세요.'}</p>`;
 }
 
@@ -427,6 +433,8 @@ async function onClick(e) {
   const seg = t.closest('[data-seg] button');
   if (seg) { S.saveSettings({ [seg.closest('[data-seg]').dataset.seg]: seg.dataset.v }); return renderSet(); }
   if (t.matches('input[data-pref]')) return updatePref((p) => { p[t.dataset.pref] = t.checked; });
+  const tab = t.closest('[data-subject]');
+  if (tab) { Subject.set(tab.dataset.subject); return renderLibraryList(); }
   const b = t.closest('[data-act],[data-level],[data-judge],[data-node],[data-preset],[data-libopen],[data-star],[data-open]');
   if (!b) {
     if (t.closest('#flash') && !t.closest('a,button')) flip();

@@ -62,7 +62,7 @@ const H = `
     await go('#tree');
     await go('#tree');
     const list = $('#olist');
-    const row1 = $$('.orow')[1], id1 = row1.dataset.id, t1 = S.node(id1).title;
+    const row1 = $$('.orow')[0], id1 = row1.dataset.id, t1 = S.node(id1).title;
     click(row1.querySelector('.otext')); await sleep(30);
     out.clickSelects = $('.orow.sel')?.dataset.id === id1 && !$('.orow .otitle');
     // F2 → 이름 바꾸기, Enter → 저장 (기존 항목은 새 줄 안 생김)
@@ -144,9 +144,29 @@ const H = `
     await go('#tree');
     const closedFirst = $$('.onote').length === 0;
     click($('[data-act="notes"]')); await sleep(30);
-    const allOpen = $$('.onote').length >= 3;
+    const allOpen = $$('.onote').length >= 2 && $$('.onote').every((x) => S.rootOf(x.dataset.note) === S.rootOf(gdm));
     click($(`.orow[data-id="${gdm}"] [data-act="note"]`)); await sleep(30);
     out.inlineNotes = closedFirst && allOpen && !$(`.onote[data-note="${gdm}"]`);
+    // 과목 탭: 고른 과목의 하위만 목록에, 탭을 누르면 그 과목으로
+    {
+      const ob = S.rootOf(gdm), med = S.findByTitle('내과');
+      const onlyOb = $$('.orow').every((r) => S.rootOf(r.dataset.id) === ob && r.dataset.id !== ob);
+      const tabs = $$('#subjTabs [data-subject]').map((t) => t.dataset.subject);
+      click($(`#subjTabs [data-subject="${med}"]`)); await sleep(30);
+      const onlyMed = $$('.orow').length > 0 && $$('.orow').every((r) => S.rootOf(r.dataset.id) === med);
+      const medSel = $('#subjTabs .subj-tab.on')?.dataset.subject === med;
+      await go('#tree/' + gdm); await sleep(30);
+      out.subjectTabs = onlyOb && tabs.includes(ob) && tabs.includes(med) && onlyMed && medSel && $('#subjTabs .subj-tab.on')?.dataset.subject === ob;
+      // 목록이 좁으면 선택한 줄 제목이 보이도록 옆으로 밀림
+      const list = $('#olist');
+      list.style.width = '120px';
+      const deep = S.findByTitle('B군 연쇄상구균(GBS)');
+      click($(`.orow[data-id="${deep}"] .otext`)); await sleep(500);
+      const tb = $(`.orow[data-id="${deep}"] .otext`).getBoundingClientRect(), lb = list.getBoundingClientRect();
+      out.revealX = list.scrollLeft > 0 && tb.left >= lb.left - 1;
+      list.style.width = '';
+      await go('#tree');
+    }
     // 사진 붙여넣기 → IndexedDB 저장 + 메모에 참조 + 미리보기에서 표시
     await go('#tree/' + gdm);
     await openNote();
@@ -365,6 +385,8 @@ const H = `
   ok('편집기: 저장 버튼(즉시 저장 후 읽기 화면)', r.saveBtn);
   ok('텍스트 가져오기 + 합치기', r.import);
   ok('정리: 외울 것 토글(기본 접힘·모두 펼치기·하나 접기)', r.inlineNotes);
+  ok('정리: 과목 탭으로 나눠 보기', r.subjectTabs);
+  ok('정리: 좁으면 보고 있는 줄 제목으로 옆 스크롤', r.revealX);
   ok('사진: 붙여넣기 저장', r.imgSaved);
   ok('사진: 외울 것에 표시', r.imgShown);
   ok('사진: 읽기 화면에서 가로 꽉 차게', r.imgWide);

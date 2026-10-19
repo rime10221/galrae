@@ -5,7 +5,8 @@
 import * as S from './store.js';
 import * as Ed from './editor.js';
 import * as Zoom from './zoom.js';
-import { $, $$, esc, debounce, renderMd, firstLine, lsGet, lsSet, composing, toast, confirmDlg, openDialog } from './util.js';
+import * as Subject from './subject.js';
+import { $, $$, esc, debounce, renderMd, firstLine, lsGet, lsSet, composing, toast, confirmDlg, openDialog, promptDlg } from './util.js';
 
 let el, api;
 let sel = null;          // 선택한(상세 패널에 열린) 노드
@@ -40,9 +41,9 @@ export function init(root, hooks) {
           <button class="btn small" data-act="collapse-all" title="모두 접기">접기</button>
           <button class="btn small" data-act="import">가져오기</button>
           <button class="btn small" data-act="export">내보내기</button>
-          <button class="btn small primary" data-act="add-root">+ 과목</button>
         </div>
       </div>
+      <div id="subjTabs"></div>
       <div class="olist" id="olist" tabindex="0"></div>
       <p class="tree-help muted small">누르면 선택 · ⠿ 끌어서 순서 바꾸기 · ✎/더블클릭/F2 이름 바꾸기 · ＋ 하위 추가 · 🗑 삭제 · ↑↓ 이동 · ←→ 접기/펼치기 · Tab 같은 레벨 다음 항목(마지막이면 새 항목) · Alt+←→ 내어/들여쓰기 · Alt+↑↓ 순서</p>
     </div>
@@ -70,6 +71,17 @@ export function init(root, hooks) {
   });
   $('#otools', el).addEventListener('pointerdown', (e) => { const b = e.target.closest('[data-tool]'); if (b) { e.preventDefault(); tool(b.dataset.tool); } });
   $('.toolbar', el).addEventListener('click', onToolbar);
+  // 과목 탭: 누르면 그 과목만 보기 (과목 자체가 선택되어 상세에 열린다)
+  $('#subjTabs', el).addEventListener('click', (e) => {
+    const t = e.target.closest('[data-subject],[data-act="add-root"]');
+    if (!t) return;
+    if (t.dataset.act === 'add-root') return addRoot();
+    Subject.set(t.dataset.subject);
+    $('#olist', el).scrollTo({ top: 0, left: 0 });
+    select(t.dataset.subject);
+  });
+  // 창 크기가 바뀌어 목록이 좁아지면 보고 있던 줄의 제목이 보이도록 옆으로 맞춘다
+  new ResizeObserver(() => { const r = sel && rowOf(sel); if (r) revealX(r); }).observe(list);
   $('#treeFilter', el).addEventListener('input', debounce((e) => { filter = e.target.value.trim(); renderList(); }, 150));
   const det = $('#detail', el);
   det.addEventListener('click', onDetailClick);
@@ -79,6 +91,7 @@ export function init(root, hooks) {
 export function show(id) {
   flushDetail();
   if (id && S.node(id)) {
+    Subject.set(id);
     for (const n of S.path(id).slice(0, -1)) collapsed.delete(n.id);
     saveCollapsed();
     sel = id;
@@ -127,6 +140,10 @@ function renderList() {
   $('#treeStat', el).textContent = `갈래 ${all.length} · 외울 것 ${all.filter((x) => S.node(x).note?.trim()).length}`;
   const ms = matchSet();
   const mm = S.masteryMap();
+  // 과목은 탭으로 나누고, 고른 과목의 하위만 목록에 (검색 중에는 모든 과목)
+  let subj = Subject.current();
+  if (sel && S.node(sel) && !filter && S.rootOf(sel) !== subj) { Subject.set(sel); subj = S.rootOf(sel); }
+  $('#subjTabs', el).innerHTML = filter ? '' : Subject.tabsHtml(subj, { add: true });
   const rows = [];
   const walk = (id, d) => {
     if (ms && !ms.has(id)) return;
@@ -153,10 +170,13 @@ function renderList() {
     if (notesOpen.has(id) && n.note?.trim()) rows.push(`<div class="onote md" data-note="${id}" style="--d:${d}">${renderMd(n.note)}</div>`);
     if (!closed) for (const k of kids) walk(k, d + 1);
   };
-  S.roots().forEach((r) => walk(r, 0));
+  if (filter) S.roots().forEach((r) => walk(r, 0));
+  else if (subj) S.children(subj).forEach((k) => walk(k, 0));
   list.innerHTML = rows.join('') || (filter
     ? '<p class="empty muted">검색 결과가 없어요</p>'
-    : `<div class="empty"><p>아직 갈래가 없어요.</p><button class="btn primary" data-act="add-root">+ 첫 과목 만들기</button> <button class="btn" data-act="import">텍스트로 한 번에 가져오기</button></div>`);
+    : subj
+      ? `<div class="empty"><p>'${esc(S.node(subj).title || '제목 없음')}'에 아직 하위 갈래가 없어요.</p><button class="btn primary" data-act="add-first">+ 첫 항목 추가</button></div>`
+      : `<div class="empty"><p>아직 갈래가 없어요.</p><button class="btn primary" data-act="add-root">+ 첫 과목 만들기</button> <button class="btn" data-act="import">텍스트로 한 번에 가져오기</button></div>`);
   if (editingId) {
     const inp = rowOf(editingId)?.querySelector('.otitle');
     if (inp) { inp.focus(); inp.select(); }
@@ -168,8 +188,21 @@ const visibleIds = () => $$('.orow', el).map((r) => r.dataset.id);
 // 선택 줄로 키보드 포커스 (화면 밖이면 스크롤)
 function focusList(id = sel) {
   const r = id && rowOf(id);
-  if (r) r.scrollIntoView({ block: 'nearest' });
+  if (r) { r.scrollIntoView({ block: 'nearest', inline: 'nearest' }); revealX(r); }
   if (!editingId && !narrow()) $('#olist', el).focus({ preventScroll: true });
+}
+
+// 목록이 좁아 제목이 잘리면, 그 줄의 레벨(들여쓰기)만큼 옆으로 밀어서 제목이 보이게
+function revealX(r) {
+  const list = $('#olist', el);
+  if (list.scrollWidth <= list.clientWidth + 1) { if (list.scrollLeft) list.scrollLeft = 0; return; }
+  const t = r.querySelector('.otext, .otitle');
+  if (!t) return;
+  const lb = list.getBoundingClientRect(), tb = t.getBoundingClientRect();
+  const x = tb.left - lb.left + list.scrollLeft;
+  const lead = 40; // 접기 화살표·점이 보이도록 조금 앞에서
+  if (x - lead >= list.scrollLeft && x + tb.width <= list.scrollLeft + list.clientWidth) return;
+  list.scrollTo({ left: Math.max(0, x - lead), behavior: 'smooth' });
 }
 
 // ---------- 선택 / 이름 바꾸기 ----------
@@ -286,6 +319,7 @@ function onListClick(e) {
   const row = e.target.closest('.orow');
   if (b) {
     if (b.dataset.act === 'add-root') return addRoot();
+    if (b.dataset.act === 'add-first') return addChild(Subject.current());
     if (b.dataset.act === 'import') return api.importDialog(null);
     const id = row?.dataset.id;
     if (!id) return;
@@ -455,11 +489,15 @@ function tool(name) {
   }
 }
 
-function addRoot() {
+// 새 과목: 이름을 묻고 그 과목 탭으로
+async function addRoot() {
+  const name = await promptDlg('새 과목 이름', '', '예) 내과');
+  if (!name) return;
   filter = '';
   $('#treeFilter', el).value = '';
-  const nid = S.as('outline', () => S.addNode({ parent: null, title: '' }));
-  startEdit(nid, true);
+  const nid = S.as('outline', () => S.addNode({ parent: null, title: name }));
+  Subject.set(nid);
+  select(nid);
 }
 
 function onToolbar(e) {
