@@ -1,0 +1,16 @@
+{
+  "name": "galrae",
+  "version": "1.1.0",
+  "private": true,
+  "description": "갈래 · 경우의 수 트레이너 (정적 PWA, 빌드 없음)",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "test": "node scripts/test.mjs",
+    "shots": "node scripts/test.mjs --shots",
+    "icons": "node scripts/make-icons.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}

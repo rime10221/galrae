@@ -1,0 +1,34 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#f2f2f7">
+<meta name="description" content="문제를 보면 어느 갈래인지, 그 안의 경우의 수와 외울 것을 먼저 떠올리는 연습을 위한 낱말카드 앱">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="갈래">
+<meta name="mobile-web-app-capable" content="yes">
+<title>갈래 · 경우의 수 트레이너</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <nav id="nav"></nav>
+  <main>
+    <section id="view-home" class="view"></section>
+    <section id="view-train" class="view" hidden></section>
+    <section id="view-graph" class="view" hidden></section>
+    <section id="view-tree" class="view" hidden></section>
+    <section id="view-settings" class="view" hidden></section>
+  </main>
+</div>
+<div id="toasts"></div>
+<noscript>자바스크립트를 켜야 사용할 수 있어요.</noscript>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

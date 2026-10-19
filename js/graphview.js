@@ -1,0 +1,226 @@
+﻿// 그래프 화면: 툴바 + 캔버스 + 정보 패널
+import * as S from './store.js';
+import { Graph } from './graph.js';
+import { $, esc, renderMd, debounce } from './util.js';
+
+let el, api, g;
+let scope = '';      // 특정 과목만 보기
+let local = false;   // 선택 갈래 주변만 보기
+let dirty = true;
+// 애플 시스템 색 [라이트, 다크]
+const PALETTE = [
+  ['#007aff', '#0a84ff'], ['#ff9500', '#ff9f0a'], ['#34c759', '#30d158'], ['#af52de', '#bf5af2'],
+  ['#ff2d55', '#ff375f'], ['#5ac8fa', '#64d2ff'], ['#5856d6', '#5e5ce6'], ['#ff3b30', '#ff453a'],
+  ['#ffcc00', '#ffd60a'], ['#00c7be', '#63e6e2'],
+];
+
+export function init(root, hooks) {
+  el = root;
+  api = hooks;
+  el.innerHTML = `<div class="graph-wrap">
+    <div class="g-toolbar">
+      <input class="input search" id="gSearch" placeholder="갈래 찾기" type="search" list="gList">
+      <datalist id="gList"></datalist>
+      <select class="input" id="gScope" title="범위"></select>
+      <div class="seg" id="gLayout"><button data-v="tree">마인드맵</button><button data-v="force">자유</button></div>
+      <div class="seg" id="gColor"><button data-v="subject">분류색</button><button data-v="mastery">숙련도</button></div>
+      <label class="g-depth" title="표시 깊이">깊이 <select class="input" id="gDepth"></select></label>
+      <button class="btn small" id="gLocal" title="선택한 갈래 주변만">주변만</button>
+      <button class="btn small" id="gFit" title="전체 보기">⤢</button>
+    </div>
+    <div class="g-body">
+      <canvas id="gCanvas"></canvas>
+      <div class="g-legend" id="gLegend"></div>
+      <aside class="g-info" id="gInfo" hidden></aside>
+    </div>
+  </div>`;
+  g = new Graph($('#gCanvas', el), {
+    onSelect: (id) => { if (local && id) refresh(); showInfo(id); },
+    onOpen: (id) => api.go('tree', id),
+  });
+  $('#gLayout', el).addEventListener('click', (e) => {
+    const v = e.target.closest('[data-v]')?.dataset.v;
+    if (!v) return;
+    S.saveSettings({ graphLayout: v });
+    refresh();
+    setTimeout(() => g.fit(), v === 'tree' ? 50 : 700);
+  });
+  $('#gColor', el).addEventListener('click', (e) => {
+    const v = e.target.closest('[data-v]')?.dataset.v;
+    if (!v) return;
+    S.saveSettings({ graphColor: v });
+    refresh();
+  });
+  $('#gDepth', el).addEventListener('change', (e) => { S.saveSettings({ graphDepth: +e.target.value }); refresh(true); });
+  $('#gScope', el).addEventListener('change', (e) => { scope = e.target.value; refresh(true); });
+  $('#gLocal', el).addEventListener('click', () => {
+    local = !local;
+    if (local && !g.sel) { local = false; return api.toast('먼저 갈래를 하나 선택해 주세요'); }
+    refresh(true);
+  });
+  $('#gFit', el).addEventListener('click', () => g.fit());
+  const search = $('#gSearch', el);
+  search.addEventListener('change', () => {
+    const q = search.value.trim();
+    const id = S.findByTitle(q) || S.search(q, 1)[0];
+    if (id) focus(id);
+  });
+  search.addEventListener('input', debounce(() => {
+    $('#gList', el).innerHTML = S.search(search.value, 12).map((id) => `<option value="${esc(S.node(id).title)}">`).join('');
+  }, 120));
+  $('#gInfo', el).addEventListener('click', onInfoClick);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { g.readColors(); refresh(); });
+}
+
+export const graph = () => g;
+export function markDirty() { dirty = true; }
+export function update() { if (dirty) refresh(); }
+
+export function show(id) {
+  g.readColors();
+  if (dirty || !g.nodes.length) refresh(true);
+  if (id && S.node(id)) {
+    if (scope && S.rootOf(id) !== scope) { scope = ''; refresh(true); }
+    setTimeout(() => focus(id), 60);
+  } else if (!g.sel) setTimeout(() => g.fit(0), 30);
+}
+
+export function themeChanged() { if (g) { g.readColors(); g.kick(0); } }
+
+function focus(id) {
+  g.select(id);
+  if (local) refresh();
+  else if (!g.map.has(id)) { scope = ''; S.saveSettings({ graphDepth: 0 }); refresh(); }
+  showInfo(id);
+  g.centerOn(id, 1.3, infoOffset());
+}
+
+function infoOffset() {
+  const box = $('#gInfo', el);
+  if (box.hidden) return { x: 0, y: 0 };
+  const r = box.getBoundingClientRect(), c = $('#gCanvas', el).getBoundingClientRect();
+  // 넓은 화면: 오른쪽 패널만큼 왼쪽으로, 좁은 화면: 아래 패널만큼 위로
+  const tree = S.settings.graphLayout === 'tree';
+  if (r.width < c.width * 0.7) {
+    // 마인드맵은 하위가 오른쪽으로 뻗으니 선택 갈래를 보이는 영역의 왼쪽 1/4 지점에
+    const visW = c.width - r.width - 14;
+    return { x: (tree ? visW * 0.25 : visW / 2) - c.width / 2, y: 0 };
+  }
+  return { x: tree ? -c.width * 0.3 : 0, y: -(r.height + 8) / 2 };
+}
+
+function syncButtons() {
+  for (const b of el.querySelectorAll('#gLayout button')) b.classList.toggle('on', b.dataset.v === S.settings.graphLayout);
+  for (const b of el.querySelectorAll('#gColor button')) b.classList.toggle('on', b.dataset.v === S.settings.graphColor);
+  $('#gLocal', el).classList.toggle('primary', local);
+}
+
+function refresh(refit = false) {
+  dirty = false;
+  const md = S.maxDepth();
+  const depthSel = $('#gDepth', el);
+  depthSel.innerHTML = `<option value="0">전체</option>` + Array.from({ length: md }, (_, i) => `<option value="${i + 1}">${i + 1}단계</option>`).join('');
+  depthSel.value = String(S.settings.graphDepth || 0);
+  const scopeSel = $('#gScope', el);
+  if (scope && !S.node(scope)) scope = '';
+  scopeSel.innerHTML = `<option value="">모든 과목</option>` + S.roots().map((r) => `<option value="${r}">${esc(S.node(r).title || '제목 없음')}</option>`).join('');
+  scopeSel.value = scope;
+  syncButtons();
+
+  let ids = scope ? S.descendants(scope) : S.descendants(null);
+  const maxD = S.settings.graphDepth || 0;
+  if (maxD) ids = ids.filter((x) => S.depth(x) <= maxD);
+  if (local && g.sel && S.node(g.sel)) {
+    // 선택 갈래의 경로 + 형제 + 2단계 하위 + 링크
+    const keep = new Set();
+    const p = S.path(g.sel);
+    for (const n of p) keep.add(n.id);
+    const par = S.parentOf(g.sel);
+    for (const s of S.children(par)) keep.add(s);
+    for (const c of S.children(g.sel)) { keep.add(c); for (const cc of S.children(c)) keep.add(cc); }
+    for (const [a, b] of links()) { if (a === g.sel) keep.add(b); if (b === g.sel) keep.add(a); }
+    ids = ids.filter((x) => keep.has(x));
+  } else local = false;
+
+  const mm = S.masteryMap();
+  const branchIdx = new Map();
+  for (const r of S.roots()) S.children(r).forEach((b) => branchIdx.set(b, branchIdx.size));
+  const colorMode = S.settings.graphColor;
+  const dark = document.documentElement.dataset.dark === '1';
+  const list = ids.map((id) => {
+    const n = S.node(id);
+    const d = S.depth(id);
+    const size = S.descendants(id).length;
+    let color;
+    if (colorMode === 'mastery') {
+      const m = mm.get(id);
+      color = m == null ? (dark ? '#4a4d57' : '#c4c6cf') : `hsl(${Math.round(m * 125)}, 65%, ${dark ? 52 : 46}%)`;
+    } else if (d === 1) {
+      color = dark ? '#f5f5f7' : '#1d1d1f';
+    } else {
+      // 마인드맵처럼 대단원(2단계) 가지마다 한 가지 색
+      const branch = S.path(id)[1].id;
+      color = PALETTE[(branchIdx.get(branch) ?? 0) % PALETTE.length][dark ? 1 : 0];
+    }
+    const tree = S.settings.graphLayout === 'tree';
+    const r = tree ? Math.max(4.5, 11 - d * 1.8) : Math.min(24, 4 + Math.sqrt(size) * 2.4 + (d === 1 ? 4 : 0));
+    return { id, parent: S.parentOf(id), label: n.title || '제목 없음', depth: d, color, r };
+  });
+  g.setLayout(S.settings.graphLayout);
+  g.setData(list, links());
+  g.highlight = g.sel ? new Set(S.path(g.sel).map((n) => n.id)) : null;
+  $('#gLegend', el).innerHTML = colorMode === 'mastery'
+    ? `<span><i style="background:hsl(0,65%,48%)"></i>약함</span><span><i style="background:hsl(62,65%,48%)"></i>보통</span><span><i style="background:hsl(125,65%,46%)"></i>강함</span><span><i style="background:${dark ? '#4a4d57' : '#c4c6cf'}"></i>미학습</span>`
+    : `<span>${ids.length}개 갈래</span><span class="muted">더블클릭: 편집 · 휠/핀치: 확대</span>`;
+  if (refit) setTimeout(() => g.fit(g.nodes.length > 1 ? 450 : 0), 30);
+}
+
+// 메모 속 [[제목]] 링크 → 점선 연결
+function links() {
+  const out = [];
+  for (const id of S.descendants(null)) {
+    const note = S.node(id).note;
+    if (!note || !note.includes('[[')) continue;
+    for (const m of note.matchAll(/\[\[(.+?)\]\]/g)) {
+      const t = S.findByTitle(m[1]);
+      if (t) out.push([id, t]);
+    }
+  }
+  return out;
+}
+
+function showInfo(id) {
+  const box = $('#gInfo', el);
+  g.highlight = id ? new Set(S.path(id).map((n) => n.id)) : null;
+  g.kick(0);
+  if (!id || !S.node(id)) { box.hidden = true; return; }
+  const n = S.node(id);
+  const p = S.path(id);
+  const kids = S.children(id);
+  const sibs = S.children(S.parentOf(id));
+  box.hidden = false;
+  box.innerHTML = `<div class="gi-head"><div class="crumbs">${p.slice(0, -1).map((x) => `<a data-focus="${x.id}">${esc(x.title)}</a>`).join('<i>›</i>') || '<span class="muted">최상위</span>'}</div>
+      <button class="icon-btn" data-act="close">✕</button></div>
+    <h3>${esc(n.title || '제목 없음')} ${n.star ? '<span class="st">★</span>' : ''}</h3>
+    <div class="muted small">Lv${p.length} · ${esc(S.levelName(p.length))} · 같은 층 ${sibs.length}가지 중 ${sibs.indexOf(id) + 1}번째</div>
+    ${sibs.length > 1 ? `<div class="gi-sec"><h4>같은 층의 경우의 수</h4><div class="chips">${sibs.map((s) => `<button class="chip ${s === id ? 'on' : ''}" data-focus="${s}">${esc(S.node(s).title)}</button>`).join('')}</div></div>` : ''}
+    ${kids.length ? `<div class="gi-sec"><h4>하위 ${kids.length}</h4><div class="chips">${kids.map((k) => `<button class="chip" data-focus="${k}">${esc(S.node(k).title)}</button>`).join('')}</div></div>` : ''}
+    ${n.note?.trim() ? `<div class="gi-sec"><h4>외울 것</h4><div class="md">${renderMd(n.note)}</div></div>` : ''}
+    <div class="gi-actions"><button class="btn primary small" data-act="train">이 갈래 학습</button><button class="btn small" data-act="edit">편집</button><button class="btn small" data-act="local">${local ? '전체 보기' : '주변만'}</button></div>`;
+}
+
+function onInfoClick(e) {
+  const b = e.target.closest('[data-act],[data-focus]');
+  if (!b) {
+    const wl = e.target.closest('.wikilink');
+    if (wl) { const id = S.findByTitle(wl.dataset.link); if (id) focus(id); }
+    return;
+  }
+  if (b.dataset.focus) return focus(b.dataset.focus);
+  switch (b.dataset.act) {
+    case 'close': g.select(null); showInfo(null); if (local) { local = false; refresh(true); } return;
+    case 'train': return api.train(g.sel);
+    case 'edit': return api.go('tree', g.sel);
+    case 'local': local = !local; refresh(true); return showInfo(g.sel);
+  }
+}
