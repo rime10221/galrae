@@ -485,6 +485,8 @@ function onToolbar(e) {
 function renderDetail() {
   const det = $('#detail', el);
   const n = S.node(sel);
+  // 외울 것을 펼치면 상세 패널을 넓게 (화면이 좁을수록 상세 쪽 비율을 키운다)
+  $('.tree-wrap', el).classList.toggle('note-wide', !!n && noteOpen);
   if (!n) {
     det.innerHTML = `<div class="d-empty muted"><p>왼쪽 항목의 <b>●</b>를 누르면<br>외울 것을 읽고 편집할 수 있어요.</p></div>`;
     return;
