@@ -766,3 +766,4 @@ html { touch-action: pan-x pan-y; }
 .lbx .pz { position: absolute; inset: 0; }
 .lbx img { display: block; width: 100vw; height: 100vh; height: 100dvh; object-fit: contain; }
 .lbx-x { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 12px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(255,255,255,.16); color: #fff; font-size: 18px; z-index: 1; }
+.lbx-info { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom)); padding: 5px 12px; border-radius: 999px; background: rgba(255,255,255,.14); color: #fff; font-size: 12.5px; pointer-events: none; }

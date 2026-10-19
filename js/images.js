@@ -121,7 +121,7 @@ export function init() {
     e.preventDefault();
     e.stopPropagation();
     if (Zoom.recentlyPinched()) return;
-    openLightbox(img.src);
+    openLightbox(img.src, img);
   }, true);
   window.addEventListener('popstate', (e) => { if (lbx && !e.state?.lbx) closeLightbox(); });
   document.addEventListener('keydown', (e) => { if (lbx && e.key === 'Escape') { e.preventDefault(); history.back(); } }, true);
@@ -130,12 +130,17 @@ export function init() {
 // ---------- 사진 크게 보기 ----------
 // 화면에 꽉 차게(가로든 세로든), 두 손가락으로 확대, 뒤로 가기 · ✕ · 바깥을 누르면 닫힌다
 let lbx = null;
-export function openLightbox(src) {
+export function openLightbox(src, from = null) {
   if (!src) return;
   closeLightbox();
   lbx = document.createElement('div');
   lbx.className = 'lbx';
-  lbx.innerHTML = `<div class="pz pz-both"><div class="pz-in"><img src="${src}" alt=""></div></div><button class="lbx-x" aria-label="닫기">✕</button>`;
+  // 사진의 실제 해상도·용량 (흐리게 보이면 원본이 작은지 확인용)
+  const meta = from?.dataset.img ? S.imageMeta(from.dataset.img) : null;
+  const kb = meta?.size ? (meta.size > 1048576 ? `${(meta.size / 1048576).toFixed(1)}MB` : `${Math.round(meta.size / 1024)}KB`) : '';
+  lbx.innerHTML = `<div class="pz pz-both"><div class="pz-in"><img src="${src}" alt=""></div></div><button class="lbx-x" aria-label="닫기">✕</button><div class="lbx-info"></div>`;
+  const big = lbx.querySelector('img');
+  big.addEventListener('load', () => { lbx?.querySelector('.lbx-info')?.replaceChildren(`${big.naturalWidth}×${big.naturalHeight}px${kb ? ` · ${kb}` : ''}`); }, { once: true });
   lbx.addEventListener('click', (e) => {
     if (Zoom.recentlyPinched()) return;
     if (e.target.closest('.lbx-x') || !e.target.closest('img')) history.back();

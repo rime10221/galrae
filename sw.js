@@ -1,6 +1,6 @@
 ﻿// 오프라인 지원: 앱 파일은 캐시 우선 + 백그라운드 갱신, Google API는 항상 네트워크
 // 새 버전을 설치할 때는 브라우저 HTTP 캐시를 거치지 않고 서버에서 받는다
-const CACHE = 'galrae-v19';
+const CACHE = 'galrae-v20';
 const ASSETS = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/util.js', 'js/store.js', 'js/sync.js', 'js/train.js', 'js/outline.js', 'js/graph.js', 'js/graphview.js', 'js/images.js', 'js/editor.js', 'js/zoom.js',
