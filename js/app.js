@@ -60,6 +60,7 @@ function boot() {
   window.addEventListener('hashchange', route);
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
   route();
+  setTimeout(showInstallBar, 1500);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
@@ -73,6 +74,49 @@ function applyTheme() {
   GV.themeChanged?.();
 }
 
+// ---------- 앱으로 설치 (PWA) ----------
+let installEvt = null;
+const MOBILE = /android/i.test(navigator.userAgent);
+const installed = () => matchMedia('(display-mode: standalone)').matches;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; showInstallBar(); if (current === 'settings') renderSettings(); });
+window.addEventListener('appinstalled', () => { installEvt = null; $('#installBar')?.remove(); toast('앱으로 설치했어요. 홈 화면에서 열어 보세요'); });
+
+function showInstallBar() {
+  if (installed() || $('#installBar') || S.settings.installHidden) return;
+  if (!MOBILE && !installEvt) return;
+  const bar = document.createElement('div');
+  bar.id = 'installBar';
+  bar.className = 'install-bar';
+  bar.innerHTML = `<img src="icons/icon-192.png" alt=""><div><b>갈래를 앱으로 설치</b><small>홈 화면에서 바로 열고, 오프라인에서도 써요</small></div>
+    <button class="btn primary small" data-act="install">설치</button><button class="x" data-act="install-x" aria-label="닫기">✕</button>`;
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    if (b.dataset.act === 'install') installApp();
+    else { S.saveSettings({ installHidden: true }); bar.remove(); }
+  });
+  document.body.append(bar);
+}
+
+async function installApp() {
+  if (installed()) return toast('이미 앱으로 실행 중이에요');
+  if (installEvt) {
+    installEvt.prompt();
+    const r = await installEvt.userChoice.catch(() => null);
+    if (r?.outcome === 'accepted') $('#installBar')?.remove();
+    installEvt = null;
+    return;
+  }
+  // 안드로이드 (갤럭시 폰·태블릿): 크롬 / 삼성 인터넷
+  const samsung = /SamsungBrowser/i.test(navigator.userAgent);
+  const steps = samsung
+    ? `<li>주소창 오른쪽의 <b>⬇ 설치 아이콘</b>을 누르거나</li><li>아래 <b>≡ 메뉴 → 현재 페이지 추가 → 홈 화면</b></li><li><b>추가</b>를 누르면 홈 화면에 갈래 아이콘이 생겨요</li>`
+    : `<li>Chrome 오른쪽 위 <b>⋮ 메뉴</b>를 누르세요</li><li><b>앱 설치</b> (또는 <b>홈 화면에 추가 → 설치</b>)를 누르세요</li><li>홈 화면·앱 서랍에 갈래 아이콘이 생겨요</li>`;  openDialog(`<div class="dlg-body">
+    <p class="dlg-msg">홈 화면에 앱으로 설치</p>
+    <ol class="install-steps">${steps}</ol>
+    <p class="muted small">설치하면 주소창 없이 앱처럼 열리고, 인터넷이 없어도 마지막으로 열었던 내용을 볼 수 있어요. 데이터는 Google 로그인으로 PC와 동기화돼요.</p>
+    <div class="dlg-actions"><button class="btn primary" data-close="">확인</button></div></div>`);
+}
 // ---------- 라우팅 ----------
 export function go(view, id) {
   const h = '#' + view + (id ? '/' + id : '');
@@ -138,6 +182,7 @@ function renderSettings() {
   if (active && el.contains(active) && active.matches('input[type=text],textarea')) return;
   el.innerHTML = `<div class="page narrow">
     <header class="page-h"><div><h1>설정</h1></div></header>
+    ${installed() ? '' : `<section class="panel install-panel"><img src="icons/icon-192.png" alt=""><div><b>앱으로 설치</b><span class="muted small">홈 화면에 앱으로 추가 (갤럭시 폰·태블릿, PC Chrome)</span></div><button class="btn primary" data-act="install">설치</button></section>`}
     <section class="panel">
       <h3>Google Drive 동기화</h3>
       <p class="muted small">PC·모바일 어디서든 같은 데이터를 써요. 내 드라이브의 <code>Galrae/galrae-data.json</code> 파일 하나만 사용하며(drive.file 권한), 다른 파일은 읽지 않아요.</p>
@@ -212,6 +257,7 @@ async function onSettingsClick(e) {
   const b = e.target.closest('[data-act]');
   if (!b) return;
   switch (b.dataset.act) {
+    case 'install': return installApp();
     case 'login': return Sync.login();
     case 'logout': if (await confirmDlg('Google Drive 연결을 해제할까요?', { detail: '이 기기의 데이터는 그대로 남아요.' })) Sync.logout(); return;
     case 'sync-now': return Sync.runSync({ manual: true });

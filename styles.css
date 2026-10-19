@@ -589,3 +589,14 @@ textarea.drop { box-shadow: 0 0 0 3px var(--accent) !important; }
 .note-tg { border: 0; background: var(--bg3); color: var(--muted); font-size: 12px; padding: 2px 8px; border-radius: 99px; }
 .note-tg:hover { color: var(--accent); }
 .note-tg.on { background: var(--accent-2); color: var(--accent); }
+/* ---------- 앱 설치 ---------- */
+.install-bar { position: fixed; left: 12px; right: 12px; top: calc(10px + env(safe-area-inset-top)); z-index: 90; display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 18px; background: var(--glass); -webkit-backdrop-filter: saturate(180%) blur(24px); backdrop-filter: saturate(180%) blur(24px); box-shadow: var(--shadow-lg); animation: rise .3s cubic-bezier(.3,.7,.4,1); max-width: 520px; margin: 0 auto; }
+.install-bar img, .install-panel img { width: 44px; height: 44px; border-radius: 11px; flex: none; }
+.install-bar div, .install-panel div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.install-bar b { font-size: 15px; }
+.install-bar small { color: var(--muted); font-size: 12.5px; }
+.install-bar .x { border: 0; background: none; color: var(--muted2); font-size: 15px; padding: 6px; }
+.install-panel { display: flex; align-items: center; gap: 14px; }
+.install-panel b { font-size: 16px; }
+.install-steps { margin: 4px 0 8px; padding-left: 20px; display: grid; gap: 8px; line-height: 1.6; }
+@media (display-mode: standalone) { .install-panel, .install-bar { display: none !important; } }

@@ -118,7 +118,6 @@ function renderList() {
     const m = mm.get(id);
     const meta = [
       n.note?.trim() ? `<button class="note-tg ${notesOpen.has(id) ? 'on' : ''}" data-act="note" tabindex="-1" title="외울 것 펼치기/접기">📝 외울 것</button>` : '',
-      n.cues?.some((c) => c.trim()) ? `<i title="문제 단서">?${n.cues.filter((c) => c.trim()).length}</i>` : '',
       kids.length ? `<i class="cnt" title="하위 갈래">${kids.length}</i>` : '',
       n.star ? '<i class="st">★</i>' : '',
       m != null ? `<i class="dot" style="--m:${m}" title="숙련도 ${Math.round(m * 100)}%"></i>` : '',

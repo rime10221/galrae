@@ -1,16 +1,26 @@
 ﻿{
+  "id": "./",
   "name": "갈래 · 경우의 수 트레이너",
   "short_name": "갈래",
-  "description": "문제를 보면 어느 갈래인지, 경우의 수와 외울 것을 먼저 떠올리는 연습",
+  "description": "갈래(과목 › 단원 › 소단원)로 정리하고, 마인드맵으로 보고, 카드로 외우는 앱",
   "start_url": "./#tree",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
   "background_color": "#f2f2f7",
-  "theme_color": "#007aff",
+  "theme_color": "#f2f2f7",
   "lang": "ko",
+  "categories": ["education", "productivity"],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "정리", "url": "./#tree", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "마인드맵", "url": "./#graph", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "카드 학습", "url": "./#train", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

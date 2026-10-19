@@ -55,7 +55,7 @@ Google 로그인은 HTTPS가 필요해서 GitHub Pages를 권장합니다. 빌�
 1. GitHub에 새 저장소(예: `galrae`)를 만들고 이 폴더의 파일을 **그대로 루트에** 올립니다.
 2. Settings → Pages → Branch `main`, 폴더 `/ (root)` → Save
 3. 잠시 후 `https://<사용자명>.github.io/galrae/` 에서 열립니다.
-4. 안드로이드 Chrome: 메뉴 → **홈 화면에 추가**. iPhone Safari: 공유 → **홈 화면에 추가**.
+4. **앱으로 설치 (갤럭시 폰·태블릿)**: 앱을 열면 위에 「갈래를 앱으로 설치」 바가 뜨고 **설치**를 누르면 끝. (또는 설정 맨 위 「앱으로 설치」, Chrome ⋮ 메뉴 → 앱 설치, 삼성 인터넷 ≡ → 현재 페이지 추가 → 홈 화면) 아이콘을 길게 누르면 정리·마인드맵·카드 학습 바로가기.
 
 `package.json`, `scripts/`, `node_modules/`는 개발용이라 배포에 없어도 됩니다(올려도 동작엔 영향 없음).
 
