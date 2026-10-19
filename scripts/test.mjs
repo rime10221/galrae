@@ -124,6 +124,20 @@ const H = `
     click($('#view-train [data-level="3"]')); await sleep(20);
     const expected = cardIds(3).length;
     out.deckCount = $$('.term-row').length === expected;
+    // 넘기며 외우기: 기록 없이 앞뒤로
+    click($('#view-train [data-seg="cardMode"] [data-v="browse"]')); await sleep(20);
+    const progBefore = JSON.stringify(S.getData().progress);
+    click($('#view-train [data-act="start"]')); await sleep(40);
+    const ss = () => JSON.parse(localStorage.getItem('galrae.v2.session'));
+    const noJudge = !$('[data-judge]') && !!$('[data-act="next"]');
+    key(document.body, 'ArrowRight'); await sleep(200);
+    const i1 = ss().i;
+    key(document.body, 'ArrowLeft'); await sleep(200);
+    const i0 = ss().i;
+    for (let k = 0; k < expected + 1; k++) { key(document.body, 'ArrowRight'); await sleep(170); }
+    out.browse = noJudge && i1 === 1 && i0 === 0 && !!$('#view-train [data-act="to-test"]') && JSON.stringify(S.getData().progress) === progBefore;
+    click($('#view-train [data-act="to-set"]')); await sleep(40);
+    click($('#view-train [data-seg="cardMode"] [data-v="test"]')); await sleep(20);
     click($('#view-train [data-act="start"]')); await sleep(40);
     let steps = 0, backOk = true, flipOk = true;
     while ($('#flash') && steps < 30) {
@@ -206,6 +220,7 @@ const H = `
   ok('카드: 세트 목록', r.library);
   ok('카드: 세트 기본 레벨(바로 아래) + 카드 목록', r.defaultLevel);
   ok('카드: 레벨별 장수', r.deckCount);
+  ok('카드: 넘기며 외우기(기록 없음, 앞뒤 이동)', r.browse);
   ok('카드: 끝까지 진행', r.card.steps);
   ok('카드: 뒤집기', r.card.flipOk);
   ok('카드: 뒷면 = 외울 것 또는 하위 목록', r.card.backOk);

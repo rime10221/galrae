@@ -15,6 +15,8 @@ const libSaved = lsGet('galrae.v1.libOpen', null);
 let libOpen = new Set(libSaved || []);
 let libQuery = '';
 const setPrefs = () => S.settings.setPrefs || {};
+const cardMode = () => S.settings.cardMode || 'browse';
+const browsing = () => session?.mode === 'browse';
 
 export const hasSession = () => !!(session && !session.done && session.i < session.cards.length);
 export const sessionInfo = () => session;
@@ -103,8 +105,9 @@ export function show(param) {
   render();
 }
 
-function begin(cards, title, from) {
-  session = { cards, i: 0, flipped: false, known: [], unknown: [], hist: [], title, from, started: now(), done: false };
+// mode: 'browse' = 넘기며 외우기(기록 없음), 'test' = 알아요/몰라요(진도 반영)
+function begin(cards, title, from, mode = cardMode()) {
+  session = { cards, i: 0, flipped: false, known: [], unknown: [], hist: [], title, from, mode, started: now(), done: false };
   persist();
   if (location.hash !== '#train') history.replaceState(null, '', '#train');
   render();
@@ -186,6 +189,8 @@ function renderSet() {
       <div class="panel-h"><h3>레벨</h3><span class="muted small">여러 개 선택 가능 · 안 고르면 전부</span></div>
       <div class="level-list">${p.avail.map((d) => `<button class="level-btn ${p.levels.includes(d) ? 'on' : ''}" data-level="${d}">
         <span><b>${esc(S.levelName(d))}</b><small>${set.node && d === S.depth(set.node.id) ? '이 갈래 자체' : `Lv${d}`}</small></span><em>${p.counts.get(d)}장</em></button>`).join('')}</div>
+      <div class="kv mode-pick"><span>학습 방식</span><div class="seg" data-seg="cardMode"><button class="${cardMode() === 'browse' ? 'on' : ''}" data-v="browse">넘기며 외우기</button><button class="${cardMode() === 'test' ? 'on' : ''}" data-v="test">알아요 · 몰라요</button></div></div>
+      <p class="muted small mode-desc">${cardMode() === 'browse' ? '좌우로 넘기기만 해요. 진도(숙련도)에는 기록되지 않아요.' : '카드마다 알아요/몰라요를 골라요. 진도에 기록되고, 끝나면 모르는 카드만 다시 볼 수 있어요.'}</p>
       <label class="check"><span>카드 섞기</span><input type="checkbox" data-pref="shuffle" ${p.shuffle ? 'checked' : ''}></label>
       <label class="check"><span>★ 별표한 카드만</span><input type="checkbox" data-pref="star" ${p.star ? 'checked' : ''}></label>
       <label class="check"><span>모르는 카드만</span><input type="checkbox" data-pref="unknownOnly" ${p.unknownOnly ? 'checked' : ''}></label>
@@ -194,7 +199,7 @@ function renderSet() {
       ${set.preset
         ? '<button class="btn ghost small" data-act="edit-preset">범위 편집</button><button class="btn ghost small" data-act="rename-preset">이름</button><button class="btn ghost small danger" data-act="del-preset">삭제</button>'
         : '<button class="btn ghost small" data-act="save-preset">☆<span class="lbl"> 내 세트로</span></button>'}
-      <button class="btn primary big" data-act="start" ${deck.length ? '' : 'disabled'}>${deck.length}장 학습</button>
+      <button class="btn primary big" data-act="start" ${deck.length ? '' : 'disabled'}>${deck.length}장 ${cardMode() === 'browse' ? '외우기' : '테스트'}</button>
     </div>
     <section class="lib-sec">
       <h3>카드 ${deck.length}장</h3>
@@ -279,31 +284,44 @@ function renderCard() {
     <div class="play-top">
       <button class="icon-btn" data-act="quit" title="끝내기 (Esc)">✕</button>
       <div class="play-title"><b>${s.i + 1} / ${s.cards.length}</b><small>${esc(s.title)}</small></div>
-      <button class="icon-btn" data-act="undo" ${s.hist.length ? '' : 'disabled'} title="되돌리기 (Z)">↶</button>
+      ${browsing() ? '<button class="icon-btn" data-act="shuffle-now" title="섞기">⇄</button>' : `<button class="icon-btn" data-act="undo" ${s.hist.length ? '' : 'disabled'} title="되돌리기 (Z)">↶</button>`}
     </div>
-    <div class="bar"><i style="width:${(s.i / s.cards.length) * 100}%"></i></div>
-    <div class="tally"><span class="t-no">${s.unknown.length}</span><span class="t-yes">${s.known.length}</span></div>
+    <div class="bar"><i style="width:${((s.i + (browsing() ? 1 : 0)) / s.cards.length) * 100}%"></i></div>
+    ${browsing() ? '<div class="tally browse"><span class="t-mode">넘기며 외우기 · 기록 안 됨</span></div>' : `<div class="tally"><span class="t-no">${s.unknown.length}</span><span class="t-yes">${s.known.length}</span></div>`}
     <div class="flip ${s.flipped ? 'flipped' : ''}" id="flash">
       <div class="face front">
         ${crumbs ? `<div class="crumbs">${crumbs}</div>` : ''}
         <div class="term">${esc(n.title || '제목 없음')}</div>
         <button class="star ${n.star ? 'on' : ''}" data-act="star" title="별표">★</button>
-        <span class="flip-hint">눌러서 뒤집기</span>
+        <span class="flip-hint">${browsing() ? '눌러서 뒤집기 · 옆으로 밀어서 넘기기' : '눌러서 뒤집기'}</span>
       </div>
       <div class="face back">
         <div class="back-title">${esc(n.title)}</div>
         <div class="back-body">${backHtml(id)}</div>
       </div>
     </div>
-    <div class="play-actions">
-      <button class="judge no" data-judge="0" title="몰라요 (←, 1)">✕<span>몰라요</span></button>
-      <button class="judge yes" data-judge="1" title="알아요 (→, 2)">✓<span>알아요</span></button>
+    <div class="play-actions">${browsing()
+      ? `<button class="judge nav" data-act="prev" ${s.i ? '' : 'disabled'} title="이전 (←)">‹<span>이전</span></button>
+         <button class="judge nav flipbtn" data-act="flip" title="뒤집기 (Space)">↻<span>뒤집기</span></button>
+         <button class="judge nav" data-act="next" title="다음 (→)">${s.i + 1 >= s.cards.length ? '✓<span>끝</span>' : '›<span>다음</span>'}</button>`
+      : `<button class="judge no" data-judge="0" title="몰라요 (←, 1)">✕<span>몰라요</span></button>
+         <button class="judge yes" data-judge="1" title="알아요 (→, 2)">✓<span>알아요</span></button>`}
     </div>
   </div>`;
 }
 
 function renderSummary() {
   const s = session;
+  if (s.mode === 'browse') {
+    el.innerHTML = `<div class="page narrow">
+      <header class="page-h"><div><h1>다 봤어요 👏</h1><p class="sub">${esc(s.title)} · ${s.cards.length}장</p></div></header>
+      <div class="sum-actions">
+        <button class="btn primary big wide" data-act="restart">처음부터 다시 보기</button>
+        <button class="btn big wide" data-act="to-test">알아요 · 몰라요로 확인하기</button>
+        <button class="btn ghost wide" data-act="to-set">세트로 돌아가기</button>
+      </div></div>`;
+    return;
+  }
   const unknown = s.unknown.filter((x) => S.node(x));
   el.innerHTML = `<div class="page narrow">
     <header class="page-h"><div><h1>${unknown.length ? '잘하고 있어요!' : '모두 알았어요 🎉'}</h1><p class="sub">${esc(s.title)}</p></div></header>
@@ -328,7 +346,21 @@ function flip() {
   $('#flash', el)?.classList.toggle('flipped', session.flipped);
 }
 
+// 넘기며 외우기: 앞뒤로만 이동 (진도 기록 없음)
+function move(d) {
+  const s = session;
+  if (!s || s.done || s.paused) return;
+  if (d < 0 && s.i === 0) return;
+  s.i += d;
+  s.flipped = false;
+  if (s.i >= s.cards.length) { s.i = s.cards.length - 1; s.done = true; }
+  persist();
+  const f = $('#flash', el);
+  if (f && !s.done) { f.classList.add(d > 0 ? 'out-l' : 'out-r'); setTimeout(render, 140); } else render();
+}
+
 function judge(known) {
+  if (browsing()) return move(known ? 1 : -1);
   const s = session;
   if (!s || s.done || s.paused || s.i >= s.cards.length) return;
   const id = s.cards[s.i];
@@ -358,6 +390,7 @@ function undo() {
 
 async function quit() {
   if (!session) return;
+  if (browsing()) return backToSet();
   if (session.hist.length && !(await confirmDlg('학습을 끝낼까요?', { ok: '끝내기' }))) return;
   if (session.hist.length) { session.done = true; persist(); return render(); }
   backToSet();
@@ -376,7 +409,7 @@ async function startFromSet() {
   const p = prefsFor(set);
   const cards = buildDeck({ scope: set.scope, ...p });
   if (!cards.length) return toast('카드가 없어요');
-  if (hasSession() && session.hist.length && !(await confirmDlg('진행 중인 학습을 닫고 새로 시작할까요?', { ok: '새로 시작' }))) return;
+  if (hasSession() && !browsing() && session.hist.length && !(await confirmDlg('진행 중인 학습을 닫고 새로 시작할까요?', { ok: '새로 시작' }))) return;
   const lv = p.levels.length ? ' · ' + p.levels.map((d) => S.levelName(d)).join(', ') : '';
   begin(cards, set.title + lv, { ...view });
 }
@@ -391,6 +424,8 @@ function updatePref(fn) {
 
 async function onClick(e) {
   const t = e.target;
+  const seg = t.closest('[data-seg] button');
+  if (seg) { S.saveSettings({ [seg.closest('[data-seg]').dataset.seg]: seg.dataset.v }); return renderSet(); }
   if (t.matches('input[data-pref]')) return updatePref((p) => { p[t.dataset.pref] = t.checked; });
   const b = t.closest('[data-act],[data-level],[data-judge],[data-node],[data-preset],[data-libopen],[data-star],[data-open]');
   if (!b) {
@@ -427,8 +462,13 @@ async function onClick(e) {
       S.as('train', () => S.updateNode(id, { star: !S.node(id).star }));
       return b.classList.toggle('on', S.node(id).star);
     }
-    case 'retry': return begin(shuffle(session.unknown.filter((x) => S.node(x))), session.title, session.from);
-    case 'restart': return begin(shuffle(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from);
+    case 'retry': return begin(shuffle(session.unknown.filter((x) => S.node(x))), session.title, session.from, 'test');
+    case 'prev': return move(-1);
+    case 'next': return move(1);
+    case 'flip': return flip();
+    case 'shuffle-now': { const s = session; const rest = shuffle(s.cards.slice(s.i)); s.cards.splice(s.i, rest.length, ...rest); s.flipped = false; persist(); toast('남은 카드를 섞었어요', { ms: 1200 }); return render(); }
+    case 'to-test': return begin(shuffle(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from, 'test');
+    case 'restart': return begin(shuffle(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from, session.mode);
     case 'to-set': return backToSet();
     case 'new-preset': {
       const r = await pickRanges();
@@ -474,6 +514,9 @@ function onKey(e) {
   // 결과 화면에서도 마지막 카드는 되돌릴 수 있게
   if (session.done) { if (k === 'z' || k === 'Z') undo(); return; }
   if (k === ' ' || k === 'Enter' || k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); flip(); }
+  else if (browsing() && k === 'ArrowLeft') move(-1);
+  else if (browsing() && k === 'ArrowRight') move(1);
+  else if (browsing()) return;
   else if (k === 'ArrowLeft' || k === '1') judge(false);
   else if (k === 'ArrowRight' || k === '2') judge(true);
   else if (k === 'z' || k === 'Z' || k === 'Backspace') { e.preventDefault(); undo(); }
@@ -503,7 +546,7 @@ function bindSwipe() {
     const dx = e.clientX - st.x, dy = e.clientY - st.y;
     st.f.style.translate = ''; st.f.style.rotate = ''; st.f.dataset.swipe = '';
     st = null;
-    if (Math.abs(dx) > 90 && Math.abs(dx) > Math.abs(dy) * 1.2) judge(dx > 0);
+    if (Math.abs(dx) > 90 && Math.abs(dx) > Math.abs(dy) * 1.2) { if (browsing()) move(dx < 0 ? 1 : -1); else judge(dx > 0); }
   };
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', () => { if (st) { st.f.style.translate = ''; st.f.style.rotate = ''; st = null; } });

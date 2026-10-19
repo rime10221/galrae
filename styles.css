@@ -600,3 +600,11 @@ textarea.drop { box-shadow: 0 0 0 3px var(--accent) !important; }
 .install-panel b { font-size: 16px; }
 .install-steps { margin: 4px 0 8px; padding-left: 20px; display: grid; gap: 8px; line-height: 1.6; }
 @media (display-mode: standalone) { .install-panel, .install-bar { display: none !important; } }
+/* 넘기며 외우기 */
+.mode-pick { border-bottom: 0; padding-bottom: 4px; }
+.mode-desc { margin: 0 0 6px; }
+.tally.browse { justify-content: center; }
+.t-mode { color: var(--muted); background: var(--bg3); font-weight: 500 !important; font-size: 12.5px !important; }
+.judge.nav { color: var(--accent); background: var(--card); }
+.judge.nav:disabled { opacity: .35; }
+.judge.flipbtn { max-width: 160px; color: var(--text); }

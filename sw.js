@@ -1,5 +1,5 @@
 ﻿// 오프라인 지원: 앱 파일은 캐시 우선 + 백그라운드 갱신, Google API는 항상 네트워크
-const CACHE = 'galrae-v5';
+const CACHE = 'galrae-v6';
 const ASSETS = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/util.js', 'js/store.js', 'js/sync.js', 'js/train.js', 'js/outline.js', 'js/graph.js', 'js/graphview.js', 'js/images.js', 'js/editor.js',
