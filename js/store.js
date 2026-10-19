@@ -29,7 +29,7 @@ export function saveSettings(patch = {}) {
 }
 export const levelName = (d) => settings.levelNames[d - 1] || `Lv${d}`;
 
-const emptyData = () => ({ v: 1, nodes: {}, progress: {}, log: {}, presets: {}, meta: {} });
+const emptyData = () => ({ v: 1, nodes: {}, progress: {}, log: {}, presets: {}, images: {}, meta: {} });
 
 export const getData = () => data;
 export const onChange = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
@@ -54,7 +54,7 @@ export function load() {
 }
 
 function normalize(d) {
-  for (const k of ['nodes', 'progress', 'log', 'presets', 'meta']) if (!d[k] || typeof d[k] !== 'object') d[k] = {};
+  for (const k of ['nodes', 'progress', 'log', 'presets', 'images', 'meta']) if (!d[k] || typeof d[k] !== 'object') d[k] = {};
   return d;
 }
 
@@ -380,14 +380,31 @@ export function streak() {
 }
 export const todayCount = () => data.log[todayKey()]?.n || 0;
 
-// ---------- 프리셋 ----------
-export const presets = () => Object.values(data.presets).filter((p) => !p.deleted).sort((a, b) => a.created - b.created);
-export function savePreset(name, opts) {
+// ---------- 사진 메타데이터 ----------
+export const imageMeta = (id) => data.images[id] || null;
+export const imageList = () => Object.values(data.images);
+export function addImageMeta(id, info) {
   const t = now();
-  const id = uid();
-  data.presets[id] = { id, name, opts, created: t, updated: t };
+  data.images[id] = { id, ...info, created: t, updated: t };
   touch();
 }
+// 동기화가 드라이브 파일 id를 기록할 때 (로컬 변경 알림 없이)
+export function patchImage(id, patch) {
+  if (!data.images[id]) return;
+  Object.assign(data.images[id], patch, { updated: now() });
+  persist();
+}
+
+// ---------- 내 세트 (여러 범위 + 레벨 묶음) ----------
+export const presets = () => Object.values(data.presets).filter((p) => !p.deleted).sort((a, b) => a.created - b.created);
+export function savePreset(name, opts, id = null) {
+  const t = now();
+  if (id && data.presets[id]) Object.assign(data.presets[id], { name, opts, updated: t });
+  else { id = uid(); data.presets[id] = { id, name, opts, created: t, updated: t }; }
+  touch();
+  return id;
+}
+export const preset = (id) => (data.presets[id] && !data.presets[id].deleted ? data.presets[id] : null);
 export function deletePreset(id) {
   if (data.presets[id]) Object.assign(data.presets[id], { deleted: true, updated: now() });
   touch();
@@ -406,6 +423,12 @@ export function merge(a, b) {
   mergeMap('nodes', 'updated');
   mergeMap('progress', 'u');
   mergeMap('presets', 'updated');
+  mergeMap('images', 'updated');
+  // 어느 쪽이든 드라이브 파일 id를 알고 있으면 유지
+  for (const k of Object.keys(out.images)) {
+    const fid = a.images[k]?.fileId || b.images[k]?.fileId;
+    if (fid && !out.images[k].fileId) out.images[k] = { ...out.images[k], fileId: fid };
+  }
   const days = new Set([...Object.keys(a.log), ...Object.keys(b.log)]);
   for (const k of [...days].sort()) {
     const x = a.log[k], y = b.log[k];
@@ -416,8 +439,8 @@ export function merge(a, b) {
 }
 
 export function exportable() {
-  const { v, nodes, progress, log, presets } = data;
-  return { v, nodes, progress, log, presets, app: 'galrae', exported: now() };
+  const { v, nodes, progress, log, presets, images } = data;
+  return { v, nodes, progress, log, presets, images, app: 'galrae', exported: now() };
 }
 
 export function importJSON(obj, mode = 'merge') {

@@ -141,6 +141,9 @@ export function inlineMd(s, opt = {}) {
   let x = esc(s);
   const codes = [];
   x = x.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+  // 사진: ![설명](img:ID) 은 기기/드라이브에 저장된 사진, ![설명](https://...) 은 웹 이미지
+  x = x.replace(/!\[([^\]]*)\]\(img:([A-Za-z0-9]+)\)/g, '<img class="md-img" data-img="$2" alt="$1">');
+  x = x.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img class="md-img" src="$2" alt="$1" loading="lazy">');
   x = x.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   x = x.replace(/==(.+?)==/g, opt.cloze ? '<span class="cloze" tabindex="0">$1</span>' : '<mark>$1</mark>');
   x = x.replace(/~~(.+?)~~/g, '<s>$1</s>');
@@ -182,4 +185,4 @@ export function renderMd(src, opt = {}) {
 }
 
 export const hasCloze = (s) => /==.+?==/.test(s || '');
-export const firstLine = (s) => String(s || '').split('\n').map((l) => l.trim()).find(Boolean)?.replace(/^([-*+•>#]+|\d+[.)])\s*/, '').replace(/==|\*\*/g, '') || '';
+export const firstLine = (s) => String(s || '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').split('\n').map((l) => l.trim()).find(Boolean)?.replace(/^([-*+•>#]+|\d+[.)])\s*/, '').replace(/==|\*\*/g, '') || '';

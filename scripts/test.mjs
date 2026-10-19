@@ -32,7 +32,7 @@ async function freshPage(viewport = { width: 1280, height: 820 }, theme) {
       sessionStorage.setItem('init', '1');
     }
   }, theme);
-  await page.goto(BASE + '#home', { waitUntil: 'networkidle0' });
+  await page.goto(BASE + '#tree', { waitUntil: 'networkidle0' });
   return { page, errors, ctx };
 }
 
@@ -80,12 +80,31 @@ const H = `
     const im2 = S.importOutline('# 내과\n## 순환기\n- 심부전\n- 판막', null);
     out.import = im.added === 4 && im2.added === 1 && im2.merged === 3;
     out.inlineNotes = (await (async () => { await go('#tree'); return $$('.onote').length; })()) >= 2;
-    // 카드 학습: 레벨 고르기 → 앞면/뒷면 → 몰라요/알아요
+    // 사진 붙여넣기 → IndexedDB 저장 + 메모에 참조 + 미리보기에서 표시
+    await go('#tree/' + gdm);
+    if (!$('.d-note')) { click($('.detail [data-act="edit"]')); await sleep(20); }
+    const cv = document.createElement('canvas'); cv.width = 40; cv.height = 30;
+    cv.getContext('2d').fillRect(0, 0, 40, 30);
+    const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+    const dt = new DataTransfer(); dt.items.add(new File([blob], 'a.png', { type: 'image/png' }));
+    const ta2 = $('.d-note');
+    ta2.selectionStart = ta2.selectionEnd = ta2.value.length;
+    ta2.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    await sleep(600);
+    out.imgSaved = /!\[\]\(img:i[a-z0-9]+\)/.test(S.node(gdm).note) && S.imageList().length === 1;
+    click($('.detail [data-act="preview"]')); await sleep(300);
+    out.imgShown = $('.note-view img.md-img')?.dataset.state === 'ok';
+    // 카드 학습: 세트(갈래) 고르기 → 레벨 → 앞면/뒷면 → 몰라요/알아요
+    const ob = S.roots()[0];
     await go('#train');
-    const lvBtn = $('#view-train [data-level="3"]');
-    click(lvBtn); await sleep(20);
-    const expected = S.descendants(null).filter((x) => S.depth(x) === 3 && ((S.node(x).note || '').trim() || S.children(x).length)).length;
-    out.deckCount = +$('.deck-n b').textContent === expected;
+    out.library = !!$(`#view-train [data-node="${ob}"]`);
+    click($(`#view-train .set-main[data-node="${ob}"]`)); await sleep(150);
+    const cardIds = (d) => S.descendants(ob).filter((x) => S.depth(x) === d && ((S.node(x).note || '').trim() || S.children(x).length));
+    out.defaultLevel = $$('#view-train .level-btn.on').map((x) => +x.dataset.level).join() === '2' && $$('.term-row').length === cardIds(2).length;
+    click($('#view-train [data-level="2"]')); await sleep(20);
+    click($('#view-train [data-level="3"]')); await sleep(20);
+    const expected = cardIds(3).length;
+    out.deckCount = $$('.term-row').length === expected;
     click($('#view-train [data-act="start"]')); await sleep(40);
     let steps = 0, backOk = true, flipOk = true;
     while ($('#flash') && steps < 30) {
@@ -105,12 +124,19 @@ const H = `
     const before = JSON.parse(localStorage.getItem('galrae.v2.session')).i;
     key(document.body, 'z'); await sleep(20);
     out.undo = before === 1 && JSON.parse(localStorage.getItem('galrae.v2.session')).i === 0;
-    // 홈에서 레벨 버튼으로 바로 시작
-    await go('#home');
-    click($('#view-home [data-lv="2"]')); await sleep(60);
-    const dlg = document.querySelector('dialog'); if (dlg) { click(dlg.querySelector('[data-close="ok"]')); await sleep(60); }
-    out.homeStart = location.hash === '#train' && !!$('#flash') && JSON.parse(localStorage.getItem('galrae.v2.session')).cards.every((x) => S.depth(x) === 2);    // 그래프: 마인드맵 정렬 확인
-    await go('#graph');
+    // 내 세트: 여러 범위 묶기
+    const pid = S.savePreset('테스트 세트', { scope: [S.findByTitle('임신과 당뇨병'), S.findByTitle('임신과 감염질환')], levels: [] });
+    await go('#train/set:' + pid);
+    out.preset = $('.set-h h1')?.textContent === '테스트 세트' && $$('.term-row').length === 3;
+    // 마인드맵 노트 카드: 외울 것이 크게, 바로 편집
+    await go('#graph/' + gdm);
+    await sleep(300);
+    out.noteCard = !!$('#gInfo .gi-note .md') && $('#gInfo .gi-title').textContent.includes('임신과 당뇨병');
+    click($('#gInfo [data-act="edit"]')); await sleep(30);
+    const gta = $('#gInfo .gi-note-in');
+    gta.value += '\n- 그래프에서 편집'; gta.dispatchEvent(new Event('input', { bubbles: true }));
+    click($('#gInfo [data-act="done"]')); await sleep(60);
+    out.graphEdit = S.node(gdm).note.includes('그래프에서 편집') && !!$('#gInfo .gi-note .md');    await go('#graph');
     await sleep(900);
     const GV = await import('./js/graphview.js');
     const g = GV.graph();
@@ -147,6 +173,10 @@ const H = `
   ok('상세: 외울 것 저장', r.noteSaved);
   ok('텍스트 가져오기 + 합치기', r.import);
   ok('트리: 외울 것 펼쳐 보기', r.inlineNotes);
+  ok('사진: 붙여넣기 저장', r.imgSaved);
+  ok('사진: 외울 것에 표시', r.imgShown);
+  ok('카드: 세트 목록', r.library);
+  ok('카드: 세트 기본 레벨(바로 아래) + 카드 목록', r.defaultLevel);
   ok('카드: 레벨별 장수', r.deckCount);
   ok('카드: 끝까지 진행', r.card.steps);
   ok('카드: 뒤집기', r.card.flipOk);
@@ -154,7 +184,9 @@ const H = `
   ok('카드: 결과 화면', r.card.summary);
   ok('카드: 모르는 것만 다시', r.retry);
   ok('카드: 되돌리기', r.undo);
-  ok('홈: 레벨 버튼으로 바로 시작', r.homeStart);
+  ok('내 세트: 여러 범위 묶기', r.preset);
+  ok('마인드맵: 노트 카드', r.noteCard);
+  ok('마인드맵: 노트 카드에서 편집', r.graphEdit);
   ok('마인드맵: 하위 갈래는 항상 오른쪽 열', r.graph.colsOk);
   ok('마인드맵: 같은 깊이는 같은 열', r.graph.sameDepthSameX);
   ok('마인드맵: 형제는 순서대로 위→아래', r.graph.rowsOk);
@@ -169,28 +201,17 @@ const H = `
 if (SHOTS) {
   await mkdir(OUT, { recursive: true });
   const scenes = {
-    home: async () => go('#home'),
+    library: async () => go('#train/list'),
+    set: async (S) => go('#train/' + S.findByTitle('임신의 내외과적 질환')),
     tree: async (S) => go('#tree/' + S.findByTitle('임신과 당뇨병')),
     graph: async () => go('#graph'),
-    graphSel: async (S) => go('#graph/' + S.findByTitle('임신의 내외과적 질환')),
-    setup: async () => go('#train'),
+    graphSel: async (S) => go('#graph/' + S.findByTitle('임신과 당뇨병')),
     card: async (S) => {
-      await go('#train');
-      const s = $('#view-train [data-act="setup"]'); if (s) click(s);
-      await sleep(20);
-      const lv = $('#view-train [data-level="3"]'); if (lv && !lv.classList.contains('on')) click(lv);
-      await sleep(20);
-      const sh = $('#view-train [data-opt="shuffle"]'); if (sh.checked) click(sh);
-      await sleep(20);
-      click($('#view-train [data-act="start"]')); await sleep(40);
-      const gdm = S.findByTitle('임신과 당뇨병');
-      for (let i = 0; i < 20; i++) {
-        const ss = JSON.parse(localStorage.getItem('galrae.v2.session'));
-        if (ss.cards[ss.i] === gdm) break;
-        key(document.body, 'ArrowRight'); await sleep(220);
-      }
-    },
-    cardBack: async () => { key(document.body, ' '); await sleep(600); },    settings: async () => go('#settings'),
+      await go('#train/' + S.findByTitle('임신의 내외과적 질환'));
+      const sh = $('#view-train [data-pref="shuffle"]'); if (sh.checked) click(sh);
+      await sleep(30);
+      click($('#view-train [data-act="start"]')); await sleep(60);
+    },    cardBack: async () => { key(document.body, ' '); await sleep(600); },    settings: async () => go('#settings'),
   };
   const sizes = [['desk', { width: 1280, height: 820 }], ['phone', { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }]];
   for (const [sname, vp] of sizes) {

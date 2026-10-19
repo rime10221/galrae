@@ -1,6 +1,7 @@
-﻿// 그래프 화면: 툴바 + 캔버스 + 정보 패널
+﻿// 마인드맵 화면: 툴바 + 캔버스 + 노트 카드
 import * as S from './store.js';
 import { Graph } from './graph.js';
+import * as Ed from './editor.js';
 import { $, esc, renderMd, debounce } from './util.js';
 
 let el, api, g;
@@ -35,7 +36,7 @@ export function init(root, hooks) {
     </div>
   </div>`;
   g = new Graph($('#gCanvas', el), {
-    onSelect: (id) => { if (local && id) refresh(); showInfo(id); },
+    onSelect: (id) => { flushEdit(); if (local && id) refresh(); showInfo(id); },
     onOpen: (id) => api.go('tree', id),
   });
   $('#gLayout', el).addEventListener('click', (e) => {
@@ -189,38 +190,82 @@ function links() {
   return out;
 }
 
+// ---------- 노트 카드 (선택한 갈래의 외울 것을 크게, 그 자리에서 편집) ----------
+let editing = false;
+const saveNote = debounce((id, v) => S.as('graph-edit', () => S.updateNode(id, { note: v })), 350);
+const saveTitle = debounce((id, v) => S.as('graph-edit', () => S.updateNode(id, { title: v })), 300);
+
 function showInfo(id) {
   const box = $('#gInfo', el);
   g.highlight = id ? new Set(S.path(id).map((n) => n.id)) : null;
   g.kick(0);
-  if (!id || !S.node(id)) { box.hidden = true; return; }
+  if (!id || !S.node(id)) { box.hidden = true; editing = false; return; }
+  if (box.dataset.id !== id) editing = false;
+  box.dataset.id = id;
   const n = S.node(id);
   const p = S.path(id);
   const kids = S.children(id);
   const sibs = S.children(S.parentOf(id));
+  const note = (n.note || '').trim();
   box.hidden = false;
-  box.innerHTML = `<div class="gi-head"><div class="crumbs">${p.slice(0, -1).map((x) => `<a data-focus="${x.id}">${esc(x.title)}</a>`).join('<i>›</i>') || '<span class="muted">최상위</span>'}</div>
-      <button class="icon-btn" data-act="close">✕</button></div>
-    <h3>${esc(n.title || '제목 없음')} ${n.star ? '<span class="st">★</span>' : ''}</h3>
-    <div class="muted small">Lv${p.length} · ${esc(S.levelName(p.length))} · 같은 층 ${sibs.length}가지 중 ${sibs.indexOf(id) + 1}번째</div>
-    ${n.note?.trim() ? `<div class="gi-sec gi-note"><div class="md big">${renderMd(n.note)}</div></div>` : ''}
-    ${kids.length ? `<div class="gi-sec"><h4>하위 ${kids.length}</h4><div class="chips">${kids.map((k) => `<button class="chip" data-focus="${k}">${esc(S.node(k).title)}</button>`).join('')}</div></div>` : ''}
-    ${sibs.length > 1 ? `<div class="gi-sec"><h4>같은 층 ${sibs.length}가지</h4><div class="chips">${sibs.map((s) => `<button class="chip ${s === id ? 'on' : ''}" data-focus="${s}">${esc(S.node(s).title)}</button>`).join('')}</div></div>` : ''}
-    <div class="gi-actions"><button class="btn primary small" data-act="train">이 갈래 학습</button><button class="btn small" data-act="edit">편집</button><button class="btn small" data-act="local">${local ? '전체 보기' : '주변만'}</button></div>`;
+  box.innerHTML = `<button class="gi-grab" data-act="grow" aria-label="크게 보기"></button>
+    <div class="gi-head">
+      <div class="crumbs">${p.slice(0, -1).map((x) => `<a data-focus="${x.id}">${esc(x.title)}</a>`).join('<i>›</i>') || `<span class="muted">${esc(S.levelName(1))}</span>`}</div>
+      <button class="icon-btn" data-act="close" title="닫기">✕</button>
+    </div>
+    ${editing
+      ? `<input class="input gi-title-in" value="${esc(n.title)}" placeholder="제목">
+         <div class="ed">${Ed.toolbarHtml()}<textarea class="input gi-note-in" rows="14" placeholder="${esc(Ed.PLACEHOLDER)}">${esc(n.note || '')}</textarea></div>
+         <div class="gi-actions"><button class="btn primary" data-act="done">완료</button></div>`
+      : `<h2 class="gi-title">${esc(n.title || '제목 없음')}${n.star ? ' <span class="st">★</span>' : ''}</h2>
+         <div class="gi-sub muted small">${esc(S.levelName(p.length))}${sibs.length > 1 ? ` · 같은 층 ${sibs.length}가지 중 ${sibs.indexOf(id) + 1}번째` : ''}</div>
+         <div class="gi-note ${note ? '' : 'empty'}" data-act="edit">${note ? `<div class="md big">${renderMd(note)}</div>` : '<p class="muted">외울 것이 없어요. 눌러서 추가</p>'}</div>
+         ${kids.length ? `<div class="gi-sec"><h4>하위 ${kids.length}</h4><div class="gi-kids">${kids.map((k, i) => {
+           const kn = S.node(k);
+           return `<button data-focus="${k}"><em>${i + 1}</em><span>${esc(kn.title || '제목 없음')}</span>${kn.note?.trim() ? '<i>📝</i>' : ''}${S.children(k).length ? `<small>${S.children(k).length}</small>` : ''}</button>`;
+         }).join('')}</div></div>` : ''}
+         ${sibs.length > 1 ? `<div class="gi-sec"><h4>같은 층</h4><div class="chips">${sibs.map((s) => `<button class="chip ${s === id ? 'on' : ''}" data-focus="${s}">${esc(S.node(s).title)}</button>`).join('')}</div></div>` : ''}
+         <div class="gi-actions">
+           <button class="btn small" data-act="edit">✎ 편집</button>
+           <button class="btn small" data-act="train">카드 학습</button>
+           <button class="btn small" data-act="tree">정리에서 보기</button>
+           <button class="btn small ghost" data-act="local">${local ? '전체 보기' : '주변만'}</button>
+         </div>`}`;
+  if (editing) {
+    const ta = $('.gi-note-in', box);
+    Ed.bind($('.ed', box), ta);
+    ta.addEventListener('input', () => saveNote(id, ta.value));
+    const ti = $('.gi-title-in', box);
+    ti.addEventListener('input', () => saveTitle(id, ti.value));
+  }
 }
 
 function onInfoClick(e) {
+  const wl = e.target.closest('.wikilink');
+  if (wl) { const id = S.findByTitle(wl.dataset.link); if (id) focus(id); return; }
   const b = e.target.closest('[data-act],[data-focus]');
-  if (!b) {
-    const wl = e.target.closest('.wikilink');
-    if (wl) { const id = S.findByTitle(wl.dataset.link); if (id) focus(id); }
-    return;
-  }
-  if (b.dataset.focus) return focus(b.dataset.focus);
+  if (!b) return;
+  if (b.dataset.focus) { flushEdit(); return focus(b.dataset.focus); }
   switch (b.dataset.act) {
-    case 'close': g.select(null); showInfo(null); if (local) { local = false; refresh(true); } return;
+    case 'close': flushEdit(); g.select(null); showInfo(null); if (local) { local = false; refresh(true); } return;
+    case 'grow': $('#gInfo', el).classList.toggle('grown'); return;
+    case 'edit': editing = true; showInfo(g.sel); $('.gi-note-in', el)?.focus(); return;
+    case 'done': flushEdit(); editing = false; refresh(); return showInfo(g.sel);
     case 'train': return api.train(g.sel);
-    case 'edit': return api.go('tree', g.sel);
+    case 'tree': return api.go('tree', g.sel);
     case 'local': local = !local; refresh(true); return showInfo(g.sel);
   }
+}
+
+function flushEdit() {
+  if (!editing) return;
+  saveNote.cancel(); saveTitle.cancel();
+  const id = $('#gInfo', el).dataset.id;
+  const ta = $('.gi-note-in', el), ti = $('.gi-title-in', el);
+  const n = S.node(id);
+  if (!n) return;
+  const patch = {};
+  if (ta && ta.value !== n.note) patch.note = ta.value;
+  if (ti && ti.value !== n.title) patch.title = ti.value;
+  if (Object.keys(patch).length) S.as('graph-edit', () => S.updateNode(id, patch));
 }

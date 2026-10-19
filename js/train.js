@@ -1,18 +1,20 @@
-// 트레이닝: Quizlet식 암기카드
-// 레벨(·범위)을 고르면 그 레벨의 갈래가 카드로 나온다.
-// 앞면 = 갈래 이름, 뒷면 = 외울 것(있으면) 또는 하위 갈래 목록. 몰라요 / 알아요로 넘긴다.
+﻿// 카드 학습 (Quizlet식 세트)
+// 세트 = 아무 갈래 하나(그 아래 전체) 또는 '내 세트'(여러 범위를 묶어 저장).
+// 세트 안에서 레벨을 고르면 그 레벨 갈래가 카드가 된다. 앞면 = 이름, 뒷면 = 외울 것 또는 하위 목록.
 import * as S from './store.js';
-import { $, esc, shuffle, renderMd, lsGet, lsSet, now, confirmDlg, toast } from './util.js';
+import { $, esc, shuffle, renderMd, firstLine, lsGet, lsSet, now, confirmDlg, promptDlg, openDialog, toast } from './util.js';
 
 const SESSION_KEY = 'galrae.v2.session';
 const PKEY = (id) => `${id}|card`;
 
-const DEFAULT_OPTS = { scope: [], levels: [], shuffle: true, unknownOnly: false };
-let opts = { ...DEFAULT_OPTS, ...(S.settings.cardOpts || {}) };
 let session = lsGet(SESSION_KEY, null);
 let el = null;
 let api = {};
-let scopeOpen = new Set(lsGet('galrae.v1.scopeOpen', []));
+let view = null;          // null = 세트 목록, { node } | { preset }
+const libSaved = lsGet('galrae.v1.libOpen', null);
+let libOpen = new Set(libSaved || []);
+let libQuery = '';
+const setPrefs = () => S.settings.setPrefs || {};
 
 export const hasSession = () => !!(session && !session.done && session.i < session.cards.length);
 export const sessionInfo = () => session;
@@ -21,131 +23,250 @@ export function init(root, hooks) {
   el = root;
   api = hooks;
   el.addEventListener('click', onClick);
+  el.addEventListener('input', (e) => { if (e.target.matches('#libSearch')) { libQuery = e.target.value.trim(); renderLibraryList(); } });
   document.addEventListener('keydown', onKey);
   bindSwipe();
 }
 
-const saveOpts = () => S.saveSettings({ cardOpts: opts });
 const persist = () => lsSet(SESSION_KEY, session);
 
-// ---------- 카드 ----------
-// 뒷면에 보여줄 게 있는 갈래만 카드가 된다
+// ---------- 카드 만들기 ----------
 const hasBack = (id) => !!(S.node(id).note || '').trim() || S.children(id).length > 0;
 
-export function scopeIds(o = opts) {
+function scopeIds(scope) {
+  const sc = (scope || []).filter((x) => S.node(x));
   const all = S.descendants(null);
-  const sc = (o.scope || []).filter((x) => S.node(x));
   if (!sc.length) return all;
   const set = new Set();
   for (const s of sc) for (const x of S.descendants(s)) set.add(x);
   return all.filter((x) => set.has(x));
 }
 
-export function buildDeck(o = opts) {
-  let ids = scopeIds(o).filter(hasBack);
-  if (o.levels?.length) ids = ids.filter((x) => o.levels.includes(S.depth(x)));
-  if (o.unknownOnly) ids = ids.filter((x) => { const p = S.prog(PKEY(x)); return !p || p.b <= 1; });
-  return o.shuffle ? shuffle(ids) : ids;
-}
+function cardsIn(scope) { return scopeIds(scope).filter(hasBack); }
 
-// 레벨별 카드 수 (범위 안에서)
-export function levelCounts(scope) {
+function levelCounts(scope) {
   const m = new Map();
-  for (const x of scopeIds({ scope })) if (hasBack(x)) m.set(S.depth(x), (m.get(S.depth(x)) || 0) + 1);
+  for (const x of cardsIn(scope)) m.set(S.depth(x), (m.get(S.depth(x)) || 0) + 1);
   return m;
 }
 
-// 홈 등에서 바로 시작
-export function start(scope, levels) {
-  opts = { ...opts, scope: scope || [], levels: levels || [] };
-  saveOpts();
-  const cards = buildDeck();
-  if (!cards.length) { toast('이 레벨에는 카드로 만들 갈래가 없어요'); return false; }
-  begin(cards);
-  return true;
+function buildDeck(cfg) {
+  let ids = cardsIn(cfg.scope);
+  if (cfg.levels?.length) ids = ids.filter((x) => cfg.levels.includes(S.depth(x)));
+  if (cfg.star) ids = ids.filter((x) => S.node(x).star);
+  if (cfg.unknownOnly) ids = ids.filter((x) => { const p = S.prog(PKEY(x)); return !p || p.b <= 1; });
+  return cfg.shuffle ? shuffle(ids) : ids;
 }
 
-export function discardSession() { session = null; persist(); }
-export function setScope(id) { opts.scope = id ? [id] : []; opts.levels = []; saveOpts(); }
+// 현재 보고 있는 세트의 설정
+function currentSet() {
+  if (!view) return null;
+  if (view.preset) {
+    const p = S.preset(view.preset);
+    if (!p) return null;
+    return { key: 'p:' + p.id, title: p.name, scope: p.opts.scope || [], preset: p };
+  }
+  const n = S.node(view.node);
+  if (!n) return null;
+  return { key: n.id, title: n.title || '제목 없음', scope: [n.id], node: n };
+}
 
-function begin(cards, title) {
-  session = { cards, i: 0, flipped: false, known: [], unknown: [], hist: [], opts: { ...opts }, title: title || deckTitle(), started: now(), done: false };
-  persist();
-  api.go('train');
+function prefsFor(set) {
+  const saved = setPrefs()[set.key];
+  const counts = levelCounts(set.scope);
+  const avail = [...counts.keys()].sort((a, b) => a - b);
+  let levels = saved?.levels?.filter((d) => counts.has(d));
+  if (!levels) {
+    // 처음 열면: 노드 세트는 바로 아래 레벨, 내 세트는 저장된 레벨
+    if (set.preset) levels = (set.preset.opts.levels || []).filter((d) => counts.has(d));
+    else { const d = S.depth(set.node.id) + 1; levels = counts.has(d) ? [d] : []; }
+  }
+  return { levels, shuffle: saved?.shuffle ?? true, star: saved?.star ?? false, unknownOnly: saved?.unknownOnly ?? false, avail, counts };
+}
+
+function savePrefs(set, p) {
+  const all = { ...setPrefs(), [set.key]: { levels: p.levels, shuffle: p.shuffle, star: p.star, unknownOnly: p.unknownOnly } };
+  S.saveSettings({ setPrefs: all });
+  if (set.preset) S.savePreset(set.preset.name, { ...set.preset.opts, levels: p.levels }, set.preset.id);
+}
+
+// ---------- 화면 전환 ----------
+// param: undefined → 목록(진행 중 학습이 있으면 카드), 'list' → 목록, 노드 id, 'set:<프리셋 id>'
+export function show(param) {
+  if (param === 'list') view = null;
+  else if (param?.startsWith('set:')) view = { preset: param.slice(4) };
+  else if (param && S.node(param)) view = { node: param };
+  else if (!hasSession()) view = view && currentSet() ? view : null;
+  // 세트/목록을 직접 열면 진행 중인 학습은 잠시 접어두고, 그냥 '카드 학습' 탭을 누르면 이어서
+  if (session?.done && param) { session = null; persist(); }
+  if (session) session.paused = !!param;
   render();
 }
 
-function deckTitle(o = opts) {
-  const sc = (o.scope || []).map((x) => S.node(x)?.title).filter(Boolean).join(', ') || '전체';
-  const lv = o.levels?.length ? ' · ' + o.levels.map((d) => S.levelName(d)).join(', ') : '';
-  return sc + lv;
+function begin(cards, title, from) {
+  session = { cards, i: 0, flipped: false, known: [], unknown: [], hist: [], title, from, started: now(), done: false };
+  persist();
+  if (location.hash !== '#train') history.replaceState(null, '', '#train');
+  render();
 }
 
-// ---------- 렌더 ----------
 export function render() {
   if (!el) return;
   if (session && !session.done) {
     while (session.i < session.cards.length && !S.node(session.cards[session.i])) session.cards.splice(session.i, 1);
     if (session.i >= session.cards.length) { session.done = session.cards.length > 0; persist(); }
   }
-  if (session?.done) renderSummary();
-  else if (session && session.i < session.cards.length) renderCard();
-  else renderSetup();
+  if (session && !session.paused && session.done) return renderSummary();
+  if (session && !session.paused && session.i < session.cards.length) return renderCard();
+  if (view && currentSet()) return renderSet();
+  view = null;
+  renderLibrary();
 }
 
-function renderSetup() {
-  const counts = levelCounts(opts.scope);
-  const levels = [...counts.keys()].sort((a, b) => a - b);
-  const n = buildDeck({ ...opts, shuffle: false }).length;
+// ---------- 세트 목록 ----------
+function renderLibrary() {
+  const presets = S.presets();
   el.innerHTML = `<div class="page narrow">
-    <header class="page-h"><div><h1>카드 학습</h1><p class="sub">레벨을 고르면 그 레벨의 갈래가 카드로 나와요</p></div></header>
-    <section class="panel">
-      <h3>레벨</h3>
-      <div class="level-list">${levels.map((d) => `<button class="level-btn ${opts.levels.includes(d) ? 'on' : ''}" data-level="${d}">
-        <span><b>${esc(S.levelName(d))}</b><small>Lv${d}</small></span><em>${counts.get(d)}장</em></button>`).join('') || '<p class="muted">트리에서 갈래를 먼저 만들어 주세요.</p>'}</div>
-      <p class="muted small">여러 개 고를 수 있어요. 안 고르면 모든 레벨.</p>
+    <header class="page-h"><div><h1>카드 학습</h1><p class="sub">세트를 고르고, 그 안에서 레벨을 정해 외워요</p></div></header>
+    ${hasSession() ? `<section class="panel resume" data-act="resume"><div><b>이어서 학습</b><span class="muted">${esc(session.title)} · ${session.i} / ${session.cards.length}</span></div><button class="btn primary">계속</button></section>` : ''}
+    <section class="lib-sec">
+      <div class="panel-h"><h3>내 세트</h3><button class="link" data-act="new-preset">+ 새 세트</button></div>
+      ${presets.length ? `<div class="set-list">${presets.map((p) => {
+        const n = cardsIn(p.opts.scope).length;
+        const names = (p.opts.scope || []).map((x) => S.node(x)?.title).filter(Boolean);
+        return `<button class="set-row" data-preset="${p.id}"><span class="set-ic">★</span><span class="set-main"><b>${esc(p.name)}</b><small>${esc(names.join(' · ') || '전체')}</small></span><em>${n}장</em></button>`;
+      }).join('')}</div>` : '<p class="muted small lib-empty">여러 범위를 묶어 나만의 세트를 만들 수 있어요. 예) 산과 내과질환 + 감염 파트</p>'}
     </section>
-    <section class="panel">
-      <div class="panel-h"><h3>범위</h3>${opts.scope.length ? '<button class="link" data-act="scope-all">전체로</button>' : '<span class="muted small">전체</span>'}</div>
-      <div class="scope-tree">${scopeTree()}</div>
+    <section class="lib-sec">
+      <div class="panel-h"><h3>갈래 세트</h3></div>
+      <input class="input search" id="libSearch" placeholder="세트 찾기" type="search" value="${esc(libQuery)}">
+      <div class="set-list tree" id="libList"></div>
     </section>
+  </div>`;
+  renderLibraryList();
+}
+
+function renderLibraryList() {
+  const box = $('#libList', el);
+  if (!box) return;
+  if (!libSaved && !libOpen.size) S.roots().forEach((r) => libOpen.add(r)); // 처음엔 과목을 펼쳐서
+  const rows = [];
+  const q = libQuery.toLowerCase();
+  const row = (id, d) => {
+    const n = S.node(id);
+    const kids = S.children(id).filter((k) => cardsIn([k]).length);
+    const cnt = cardsIn([id]).length;
+    const open = libOpen.has(id);
+    rows.push(`<div class="set-row tr" style="--d:${d}">
+      ${kids.length && !q ? `<button class="caret ${open ? 'open' : ''}" data-libopen="${id}"></button>` : '<span class="caret leaf"></span>'}
+      <button class="set-main" data-node="${id}"><b>${esc(n.title || '제목 없음')}</b><small>${q ? S.path(id).slice(0, -1).map((x) => esc(x.title)).join(' › ') : esc(S.levelName(d + 1))}</small></button>
+      <em>${cnt}장</em><button class="set-go" data-node="${id}" aria-label="열기">›</button></div>`);
+    if (!q && open) for (const k of kids) row(k, d + 1);
+  };
+  if (q) {
+    for (const id of S.search(libQuery, 60)) if (cardsIn([id]).length) row(id, 0);
+  } else S.roots().forEach((r) => row(r, 0));
+  box.innerHTML = rows.join('') || `<p class="muted small lib-empty">${q ? '찾는 세트가 없어요' : '정리 탭에서 갈래와 외울 것을 먼저 만들어 주세요.'}</p>`;
+}
+
+// ---------- 세트 화면 ----------
+function renderSet() {
+  const set = currentSet();
+  const p = prefsFor(set);
+  const deck = buildDeck({ scope: set.scope, ...p, shuffle: false });
+  const crumbs = set.node ? S.path(set.node.id).slice(0, -1).map((x) => esc(x.title)).join(' <i>›</i> ') : '내 세트';
+  el.innerHTML = `<div class="page narrow">
+    <button class="back-link" data-act="list">‹ 세트 목록</button>
+    <header class="set-h">
+      <div class="crumbs">${crumbs}</div>
+      <h1>${esc(set.title)}</h1>
+      ${set.preset ? `<p class="sub">${esc((set.scope || []).map((x) => S.node(x)?.title).filter(Boolean).join(' · ') || '전체')}</p>` : ''}
+    </header>
     <section class="panel">
-      <label class="check"><span>카드 섞기</span><input type="checkbox" data-opt="shuffle" ${opts.shuffle ? 'checked' : ''}></label>
-      <label class="check"><span>모르는 카드만</span><input type="checkbox" data-opt="unknownOnly" ${opts.unknownOnly ? 'checked' : ''}></label>
+      <div class="panel-h"><h3>레벨</h3><span class="muted small">여러 개 선택 가능 · 안 고르면 전부</span></div>
+      <div class="level-list">${p.avail.map((d) => `<button class="level-btn ${p.levels.includes(d) ? 'on' : ''}" data-level="${d}">
+        <span><b>${esc(S.levelName(d))}</b><small>${set.node && d === S.depth(set.node.id) ? '이 갈래 자체' : `Lv${d}`}</small></span><em>${p.counts.get(d)}장</em></button>`).join('')}</div>
+      <label class="check"><span>카드 섞기</span><input type="checkbox" data-pref="shuffle" ${p.shuffle ? 'checked' : ''}></label>
+      <label class="check"><span>★ 별표한 카드만</span><input type="checkbox" data-pref="star" ${p.star ? 'checked' : ''}></label>
+      <label class="check"><span>모르는 카드만</span><input type="checkbox" data-pref="unknownOnly" ${p.unknownOnly ? 'checked' : ''}></label>
     </section>
     <div class="start-bar">
-      <span class="deck-n"><b>${n}</b>장</span>
-      <button class="btn primary big" data-act="start" ${n ? '' : 'disabled'}>학습 시작</button>
+      ${set.preset
+        ? '<button class="btn ghost small" data-act="edit-preset">범위 편집</button><button class="btn ghost small" data-act="rename-preset">이름</button><button class="btn ghost small danger" data-act="del-preset">삭제</button>'
+        : '<button class="btn ghost small" data-act="save-preset">☆<span class="lbl"> 내 세트로</span></button>'}
+      <button class="btn primary big" data-act="start" ${deck.length ? '' : 'disabled'}>${deck.length}장 학습</button>
     </div>
+    <section class="lib-sec">
+      <h3>카드 ${deck.length}장</h3>
+      <div class="term-list">${deck.map((id) => {
+        const n = S.node(id);
+        const back = (n.note || '').trim() ? firstLine(n.note) : S.children(id).map((k) => S.node(k).title).join(' · ');
+        const pr = S.prog(PKEY(id));
+        return `<div class="term-row" data-open="${id}">
+          <div class="term-l"><b>${esc(n.title || '제목 없음')}</b>${set.scope.length !== 1 || S.parentOf(id) !== set.scope[0] ? `<small>${esc(S.path(id).slice(0, -1).map((x) => x.title).slice(-2).join(' › '))}</small>` : ''}</div>
+          <div class="term-r">${(n.note || '').trim() ? '' : '<span class="tag">하위</span>'}${esc(back)}</div>
+          <span class="term-st ${pr ? (pr.b >= 2 ? 'ok' : 'ng') : ''}"></span>
+          <button class="star ${n.star ? 'on' : ''}" data-star="${id}" title="별표">★</button>
+        </div>`;
+      }).join('') || '<p class="muted small">이 조건에 맞는 카드가 없어요</p>'}</div>
+    </section>
   </div>`;
 }
 
-function scopeTree() {
-  const sel = new Set(opts.scope);
-  const rows = [];
-  const walk = (id, d, implied) => {
-    const n = S.node(id);
-    const kids = S.children(id);
-    const on = sel.has(id);
-    const open = scopeOpen.has(id);
-    rows.push(`<div class="srow" style="--d:${d}">
-      ${kids.length ? `<button class="caret ${open ? 'open' : ''}" data-sopen="${id}"></button>` : '<span class="caret leaf"></span>'}
-      <label class="${implied ? 'implied' : ''}"><input type="checkbox" data-scope="${id}" ${on || implied ? 'checked' : ''} ${implied ? 'disabled' : ''}>
-      <span>${esc(n.title || '(제목 없음)')}</span></label></div>`);
-    if (open) for (const k of kids) walk(k, d + 1, implied || on);
+// 여러 범위 고르기 (내 세트)
+function pickRanges(initial = [], name = '') {
+  const sel = new Set(initial);
+  const open = new Set(initial.flatMap((x) => S.path(x).slice(0, -1).map((n) => n.id)));
+  const tree = () => {
+    const rows = [];
+    const walk = (id, d, implied) => {
+      const kids = S.children(id).filter((k) => cardsIn([k]).length);
+      const on = sel.has(id);
+      rows.push(`<div class="srow" style="--d:${d}">
+        ${kids.length ? `<button class="caret ${open.has(id) ? 'open' : ''}" data-o="${id}"></button>` : '<span class="caret leaf"></span>'}
+        <label class="${implied ? 'implied' : ''}"><input type="checkbox" data-s="${id}" ${on || implied ? 'checked' : ''} ${implied ? 'disabled' : ''}><span>${esc(S.node(id).title || '제목 없음')}</span></label>
+        <small class="muted">${cardsIn([id]).length}장</small></div>`);
+      if (open.has(id)) for (const k of kids) walk(k, d + 1, implied || on);
+    };
+    S.roots().forEach((r) => walk(r, 0, false));
+    return rows.join('');
   };
-  S.roots().forEach((r) => walk(r, 0, false));
-  return rows.join('') || '<p class="muted">갈래가 없어요</p>';
+  return openDialog(`<div class="dlg-body">
+    <p class="dlg-msg">${name ? '세트 범위 편집' : '새 세트'}</p>
+    <input class="input" id="psName" placeholder="세트 이름 (예: 산과 내과질환)" value="${esc(name)}">
+    <p class="muted small">묶을 갈래를 고르세요. 고른 갈래 아래 전체가 세트에 들어가요.</p>
+    <div class="scope-tree tall" id="psTree">${tree()}</div>
+    <div class="dlg-actions"><button class="btn ghost" data-close="">취소</button><button class="btn primary" id="psOk">저장</button></div></div>`, {
+    onMount(d, close) {
+      const box = d.querySelector('#psTree');
+      box.addEventListener('click', (e) => {
+        const o = e.target.closest('[data-o]');
+        if (o) { open.has(o.dataset.o) ? open.delete(o.dataset.o) : open.add(o.dataset.o); box.innerHTML = tree(); return; }
+        const c = e.target.closest('input[data-s]');
+        if (c) {
+          const id = c.dataset.s;
+          if (c.checked) { for (const x of [...sel]) if (S.isAncestor(id, x)) sel.delete(x); sel.add(id); } else sel.delete(id);
+          box.innerHTML = tree();
+        }
+      });
+      d.querySelector('#psOk').onclick = () => {
+        const nm = d.querySelector('#psName').value.trim();
+        if (!nm) return d.querySelector('#psName').focus();
+        if (!sel.size) return toast('범위를 하나 이상 골라 주세요');
+        close({ name: nm, scope: [...sel] });
+      };
+      if (!name) d.querySelector('#psName').focus();
+    },
+  });
 }
 
+// ---------- 카드 ----------
 function backHtml(id) {
   const n = S.node(id);
   const kids = S.children(id);
   const note = (n.note || '').trim();
   const list = kids.length ? `<ol class="kid-list">${kids.map((k) => `<li>${esc(S.node(k).title || '제목 없음')}</li>`).join('')}</ol>` : '';
-  if (note) {
-    return `<div class="md big">${renderMd(note)}</div>${list ? `<div class="back-sub"><h4>하위 ${kids.length}</h4>${list}</div>` : ''}`;
-  }
+  if (note) return `<div class="md big">${renderMd(note)}</div>${list ? `<div class="back-sub"><h4>하위 ${kids.length}</h4>${list}</div>` : ''}`;
   return `<h4 class="back-h">하위 갈래 ${kids.length}</h4>${list}`;
 }
 
@@ -153,8 +274,7 @@ function renderCard() {
   const s = session;
   const id = s.cards[s.i];
   const n = S.node(id);
-  const p = S.path(id);
-  const crumbs = p.slice(0, -1).map((x) => esc(x.title)).join(' <i>›</i> ');
+  const crumbs = S.path(id).slice(0, -1).map((x) => esc(x.title)).join(' <i>›</i> ');
   el.innerHTML = `<div class="play" style="--scale:${S.settings.cardScale}">
     <div class="play-top">
       <button class="icon-btn" data-act="quit" title="끝내기 (Esc)">✕</button>
@@ -195,14 +315,14 @@ function renderSummary() {
     <div class="sum-actions">
       ${unknown.length ? `<button class="btn primary big wide" data-act="retry">모르는 ${unknown.length}장 다시 학습</button>` : ''}
       <button class="btn big wide" data-act="restart">처음부터 다시</button>
-      <button class="btn ghost wide" data-act="setup">다른 레벨 고르기</button>
+      <button class="btn ghost wide" data-act="to-set">세트로 돌아가기</button>
     </div>
   </div>`;
 }
 
 // ---------- 동작 ----------
 function flip() {
-  if (!session || session.done) return;
+  if (!session || session.done || session.paused) return;
   session.flipped = !session.flipped;
   persist();
   $('#flash', el)?.classList.toggle('flipped', session.flipped);
@@ -210,7 +330,7 @@ function flip() {
 
 function judge(known) {
   const s = session;
-  if (!s || s.done || s.i >= s.cards.length) return;
+  if (!s || s.done || s.paused || s.i >= s.cards.length) return;
   const id = s.cards[s.i];
   const prev = S.as('train', () => S.rate(PKEY(id), known ? 3 : 1));
   (known ? s.known : s.unknown).push(id);
@@ -220,11 +340,7 @@ function judge(known) {
   if (s.i >= s.cards.length) s.done = true;
   persist();
   const f = $('#flash', el);
-  if (f && !s.done) {
-    // 카드가 옆으로 날아가는 짧은 효과
-    f.classList.add(known ? 'out-r' : 'out-l');
-    setTimeout(render, 160);
-  } else render();
+  if (f && !s.done) { f.classList.add(known ? 'out-r' : 'out-l'); setTimeout(render, 160); } else render();
 }
 
 function undo() {
@@ -244,62 +360,119 @@ async function quit() {
   if (!session) return;
   if (session.hist.length && !(await confirmDlg('학습을 끝낼까요?', { ok: '끝내기' }))) return;
   if (session.hist.length) { session.done = true; persist(); return render(); }
-  discardSession();
+  backToSet();
+}
+
+function backToSet() {
+  const from = session?.from;
+  session = null;
+  persist();
+  view = from || view;
   render();
+}
+
+async function startFromSet() {
+  const set = currentSet();
+  const p = prefsFor(set);
+  const cards = buildDeck({ scope: set.scope, ...p });
+  if (!cards.length) return toast('카드가 없어요');
+  if (hasSession() && session.hist.length && !(await confirmDlg('진행 중인 학습을 닫고 새로 시작할까요?', { ok: '새로 시작' }))) return;
+  const lv = p.levels.length ? ' · ' + p.levels.map((d) => S.levelName(d)).join(', ') : '';
+  begin(cards, set.title + lv, { ...view });
+}
+
+function updatePref(fn) {
+  const set = currentSet();
+  const p = prefsFor(set);
+  fn(p);
+  savePrefs(set, p);
+  renderSet();
 }
 
 async function onClick(e) {
   const t = e.target;
-  if (t.matches('input[data-scope]')) {
-    const id = t.dataset.scope;
-    const set = new Set(opts.scope);
-    if (t.checked) { for (const x of [...set]) if (S.isAncestor(id, x)) set.delete(x); set.add(id); } else set.delete(id);
-    opts.scope = [...set];
-    opts.levels = opts.levels.filter((d) => levelCounts(opts.scope).has(d));
-    saveOpts();
-    return renderSetup();
-  }
-  if (t.matches('input[data-opt]')) { opts[t.dataset.opt] = t.checked; saveOpts(); return renderSetup(); }
-  const b = t.closest('[data-act],[data-level],[data-sopen],[data-judge]');
+  if (t.matches('input[data-pref]')) return updatePref((p) => { p[t.dataset.pref] = t.checked; });
+  const b = t.closest('[data-act],[data-level],[data-judge],[data-node],[data-preset],[data-libopen],[data-star],[data-open]');
   if (!b) {
     if (t.closest('#flash') && !t.closest('a,button')) flip();
     return;
   }
   if (b.dataset.level) {
     const d = +b.dataset.level;
-    opts.levels = opts.levels.includes(d) ? opts.levels.filter((x) => x !== d) : [...opts.levels, d].sort();
-    saveOpts();
-    return renderSetup();
-  }
-  if (b.dataset.sopen) {
-    const id = b.dataset.sopen;
-    scopeOpen.has(id) ? scopeOpen.delete(id) : scopeOpen.add(id);
-    lsSet('galrae.v1.scopeOpen', [...scopeOpen]);
-    return renderSetup();
+    return updatePref((p) => { p.levels = p.levels.includes(d) ? p.levels.filter((x) => x !== d) : [...p.levels, d].sort(); });
   }
   if (b.dataset.judge) return judge(b.dataset.judge === '1');
+  if (b.dataset.libopen) {
+    const id = b.dataset.libopen;
+    libOpen.has(id) ? libOpen.delete(id) : libOpen.add(id);
+    lsSet('galrae.v1.libOpen', [...libOpen]);
+    return renderLibraryList();
+  }
+  if (b.dataset.node) return api.go('train', b.dataset.node);
+  if (b.dataset.preset) return api.go('train', 'set:' + b.dataset.preset);
+  if (b.dataset.star) {
+    const id = b.dataset.star;
+    S.as('train', () => S.updateNode(id, { star: !S.node(id).star }));
+    return b.classList.toggle('on', S.node(id).star);
+  }
+  if (b.dataset.open) return api.go('tree', b.dataset.open);
   switch (b.dataset.act) {
-    case 'scope-all': opts.scope = []; saveOpts(); return renderSetup();
-    case 'start': { const c = buildDeck(); return c.length ? begin(c) : toast('카드가 없어요'); }
+    case 'resume': session.paused = false; return render();
+    case 'list': return api.go('train', 'list');
+    case 'start': return startFromSet();
     case 'undo': return undo();
     case 'quit': return quit();
     case 'star': {
       const id = session.cards[session.i];
       S.as('train', () => S.updateNode(id, { star: !S.node(id).star }));
-      b.classList.toggle('on', S.node(id).star);
+      return b.classList.toggle('on', S.node(id).star);
+    }
+    case 'retry': return begin(shuffle(session.unknown.filter((x) => S.node(x))), session.title, session.from);
+    case 'restart': return begin(shuffle(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from);
+    case 'to-set': return backToSet();
+    case 'new-preset': {
+      const r = await pickRanges();
+      if (!r) return;
+      const id = S.savePreset(r.name, { scope: r.scope, levels: [] });
+      return api.go('train', 'set:' + id);
+    }
+    case 'save-preset': {
+      const set = currentSet();
+      const name = await promptDlg('내 세트 이름', set.title);
+      if (!name) return;
+      const id = S.savePreset(name, { scope: set.scope, levels: prefsFor(set).levels });
+      toast('내 세트에 저장했어요');
+      return api.go('train', 'set:' + id);
+    }
+    case 'edit-preset': {
+      const set = currentSet();
+      const r = await pickRanges(set.scope, set.title);
+      if (!r) return;
+      S.savePreset(r.name, { ...set.preset.opts, scope: r.scope }, set.preset.id);
+      return renderSet();
+    }
+    case 'rename-preset': {
+      const set = currentSet();
+      const name = await promptDlg('세트 이름', set.title);
+      if (name) { S.savePreset(name, set.preset.opts, set.preset.id); renderSet(); }
       return;
     }
-    case 'retry': return begin(shuffle(session.unknown.filter((x) => S.node(x))), session.title);
-    case 'restart': { opts = { ...opts, ...session.opts }; const c = buildDeck(); return c.length ? begin(c, session.title) : toast('카드가 없어요'); }
-    case 'setup': discardSession(); return render();
+    case 'del-preset': {
+      const set = currentSet();
+      if (!(await confirmDlg(`'${set.title}' 세트를 삭제할까요?`, { ok: '삭제', danger: true, detail: '갈래와 외울 것은 그대로 남아요.' }))) return;
+      S.deletePreset(set.preset.id);
+      return api.go('train', 'list');
+    }
   }
 }
 
 function onKey(e) {
-  if (!el || el.hidden || !session || session.done) return;
+  if (!el || el.hidden || !session || session.paused) return;
   if (e.target.closest('input,textarea,[contenteditable],dialog')) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key;
+  // 결과 화면에서도 마지막 카드는 되돌릴 수 있게
+  if (session.done) { if (k === 'z' || k === 'Z') undo(); return; }
   if (k === ' ' || k === 'Enter' || k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); flip(); }
   else if (k === 'ArrowLeft' || k === '1') judge(false);
   else if (k === 'ArrowRight' || k === '2') judge(true);
@@ -307,12 +480,14 @@ function onKey(e) {
   else if (k === 'Escape') quit();
 }
 
-// 카드를 오른쪽으로 밀면 알아요, 왼쪽은 몰라요 (뒤집기 전후 상관없이)
+// 카드를 오른쪽으로 밀면 알아요, 왼쪽은 몰라요
 function bindSwipe() {
   let st = null;
   el.addEventListener('pointerdown', (e) => {
     const f = e.target.closest('#flash');
-    if (!f || e.pointerType === 'mouse' || e.target.closest('.back-body') && f.querySelector('.back-body').scrollHeight > f.querySelector('.back-body').clientHeight) return;
+    if (!f || e.pointerType === 'mouse') return;
+    const body = f.querySelector('.back-body');
+    if (e.target.closest('.back-body') && body.scrollHeight > body.clientHeight) return;
     st = { x: e.clientX, y: e.clientY, f };
   });
   el.addEventListener('pointermove', (e) => {

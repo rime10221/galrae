@@ -1,6 +1,7 @@
-// Google Drive 동기화 (drive.file 권한: 이 앱이 만든 파일만 접근)
+﻿// Google Drive 동기화 (drive.file 권한: 이 앱이 만든 파일만 접근)
 // 내 드라이브/Galrae/galrae-data.json 하나에 전체 데이터를 저장하고, 항목별 updated 시각으로 병합한다.
 import * as S from './store.js';
+import * as Images from './images.js';
 import { lsGet, lsSet, now } from './util.js';
 
 export const DEFAULT_CLIENT_ID = '83549191023-4v8ggp4pbt9q8oen511nk0cvv2jo9c4a.apps.googleusercontent.com';
@@ -14,7 +15,7 @@ const KEY = 'galrae.v1.sync';
 
 const st = {
   enabled: false, auto: true, clientId: '', email: '', token: '', exp: 0,
-  folderId: '', fileId: '', lastSync: 0, dirty: false, needLogin: false,
+  folderId: '', fileId: '', imgFolderId: '', lastSync: 0, dirty: false, needLogin: false,
   ...lsGet(KEY, {}),
 };
 const save = () => lsSet(KEY, st);
@@ -98,7 +99,7 @@ export function login() {
 
 export function logout() {
   if (st.token) fetch(`https://oauth2.googleapis.com/revoke?token=${st.token}`, { method: 'POST' }).catch(() => {});
-  Object.assign(st, { enabled: false, token: '', exp: 0, email: '', folderId: '', fileId: '', needLogin: false });
+  Object.assign(st, { enabled: false, token: '', exp: 0, email: '', folderId: '', fileId: '', imgFolderId: '', needLogin: false });
   save();
   setStatus('off');
 }
@@ -146,6 +147,40 @@ async function folderId() {
   }
   save();
   return st.folderId;
+}
+
+async function imgFolderId(fid) {
+  if (st.imgFolderId) return st.imgFolderId;
+  const q = encodeURIComponent(`name='images' and '${fid}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const r = await gjson(`${API}/files?q=${q}&fields=files(id)&spaces=drive`);
+  if (r.files?.length) st.imgFolderId = r.files[0].id;
+  else {
+    const c = await gjson(`${API}/files?fields=id`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'images', parents: [fid], mimeType: 'application/vnd.google-apps.folder' }),
+    });
+    st.imgFolderId = c.id;
+  }
+  save();
+  return st.imgFolderId;
+}
+
+// 아직 드라이브에 없는 사진 올리기 → 메타데이터에 fileId 기록
+async function uploadImages(fid) {
+  const list = await Images.pending();
+  if (!list.length) return;
+  const folder = await imgFolderId(fid);
+  for (const { meta, blob } of list) {
+    const b = 'galraeimg' + now();
+    const head = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: meta.id + '.jpg', parents: [folder] })}\r\n--${b}\r\nContent-Type: ${blob.type || 'image/jpeg'}\r\n\r\n`;
+    const res = await gjson(`${UPLOAD}/files?uploadType=multipart&fields=id`, {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/related; boundary=${b}` },
+      body: new Blob([head, blob, `\r\n--${b}--`]),
+    });
+    S.patchImage(meta.id, { fileId: res.id });
+    st.dirty = true;
+  }
 }
 
 async function fileId(fid) {
@@ -198,6 +233,7 @@ export async function runSync({ manual = false } = {}) {
     await getToken();
     await ensureEmail();
     const fid = await folderId();
+    await uploadImages(fid);
     let id = await fileId(fid);
     let remote = null;
     if (id) {
@@ -233,7 +269,7 @@ export async function runSync({ manual = false } = {}) {
   }
 }
 
-const stripMeta = (d) => ({ nodes: d.nodes, progress: d.progress, log: d.log, presets: d.presets });
+const stripMeta = (d) => ({ nodes: d.nodes, progress: d.progress, log: d.log, presets: d.presets, images: d.images });
 
 export function scheduleSync() {
   st.dirty = true;
@@ -252,6 +288,12 @@ export function setOptions(patch) {
 
 export function init() {
   S.onChange((o) => { if (o.local) scheduleSync(); });
+  // 다른 기기에서 올린 사진은 필요할 때 드라이브에서 받아온다
+  Images.setFetcher(async (fileId) => {
+    if (!st.enabled) return null;
+    const r = await gfetch(`/files/${fileId}?alt=media`);
+    return r.ok ? r.blob() : null;
+  });
   if (!st.enabled) return;
   setTimeout(() => runSync({ manual: justLoggedIn }), 300);
   document.addEventListener('visibilitychange', () => {

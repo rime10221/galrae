@@ -2,7 +2,7 @@
   "name": "갈래 · 경우의 수 트레이너",
   "short_name": "갈래",
   "description": "문제를 보면 어느 갈래인지, 경우의 수와 외울 것을 먼저 떠올리는 연습",
-  "start_url": "./#home",
+  "start_url": "./#tree",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f2f2f7",

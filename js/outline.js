@@ -1,6 +1,7 @@
 ﻿// 트리(개요) 편집기 + 상세 패널
 // Enter 새 항목 · Tab 들여쓰기 · Shift+Tab 내어쓰기 · Alt+↑↓ 이동 · Ctrl+Enter 상세 · 빈 줄에서 Backspace 삭제
 import * as S from './store.js';
+import * as Ed from './editor.js';
 import { $, $$, esc, debounce, renderMd, lsGet, lsSet, composing, toast, confirmDlg, openDialog } from './util.js';
 
 let el, api;
@@ -16,6 +17,7 @@ export function init(root, hooks) {
   api = hooks;
   el.innerHTML = `<div class="tree-wrap">
     <div class="tree-main">
+      <header class="tree-h"><h1>정리</h1><span class="muted small" id="treeStat"></span></header>
       <div class="toolbar">
         <input class="input search" id="treeFilter" placeholder="갈래 · 내용 · 단서 검색" type="search">
         <div class="tb-btns">
@@ -51,7 +53,6 @@ export function init(root, hooks) {
   const det = $('#detail', el);
   det.addEventListener('click', onDetailClick);
   det.addEventListener('input', onDetailInput);
-  det.addEventListener('keydown', onNoteKey);
 }
 
 export function show(id) {
@@ -77,7 +78,8 @@ export function render() {
 
 export function onStoreChange(o) {
   if (o.src === 'typing' || o.src === 'outline') return;
-  if (o.src === 'detail') return renderList();
+  // 상세 편집·사진 추가 중에는 편집칸을 다시 그리지 않는다
+  if (o.src === 'detail' || o.src === 'image') return renderList();
   // 동기화 등 외부 변경: 편집 중인 칸은 건드리지 않고 포커스를 되살린다
   const a = document.activeElement;
   const det = $('#detail', el);
@@ -98,6 +100,8 @@ function matchSet() {
 
 function renderList() {
   const list = $('#olist', el);
+  const all = S.descendants(null);
+  $('#treeStat', el).textContent = `갈래 ${all.length} · 외울 것 ${all.filter((x) => S.node(x).note?.trim()).length}`;
   const ms = matchSet();
   const mm = S.masteryMap();
   const rows = [];
@@ -326,7 +330,7 @@ function renderDetail() {
         <div class="seg tiny"><button class="${preview ? '' : 'on'}" data-act="edit">편집</button><button class="${preview ? 'on' : ''}" data-act="preview">보기</button></div></div>
       ${preview
         ? `<div class="md note-view" data-act="edit">${renderMd(n.note) || '<span class="muted">비어 있어요. 눌러서 편집</span>'}</div>`
-        : `<textarea class="d-note input" rows="9" placeholder="- 목록은 '- '로 시작 (Tab으로 들여쓰기)\n==강조== → 내용 회상 모드에서 빈칸\n**굵게**, [[다른 갈래]] 링크, -> 화살표">${esc(n.note || '')}</textarea>`}
+        : `<div class="ed">${Ed.toolbarHtml()}<textarea class="d-note input" rows="12" placeholder="${esc(Ed.PLACEHOLDER)}">${esc(n.note || '')}</textarea></div>`}
     </div>
     <div class="d-field">
       <div class="d-label"><span>하위 갈래 ${kids.length}</span><button class="link" data-act="add-child">+ 하위 추가</button></div>
@@ -334,7 +338,7 @@ function renderDetail() {
     </div>
     ${stats ? `<div class="d-field"><div class="d-label"><span>학습 기록</span></div><div class="pstats">${stats}</div></div>` : ''}
     <div class="d-actions">
-      <button class="btn primary" data-act="train">이 갈래 학습</button>
+      <button class="btn primary" data-act="train">이 세트로 카드 학습</button>
       <button class="btn" data-act="graph">그래프</button>
       <button class="btn" data-act="move">이동</button>
       <button class="btn" data-act="dup">복제</button>
@@ -342,6 +346,8 @@ function renderDetail() {
       <button class="btn danger ghost" data-act="del">삭제</button>
     </div>
   </div>`;
+  const ed = $('.ed', det);
+  if (ed) Ed.bind(ed, $('.d-note', det));
 }
 
 const saveNote = debounce((id, v) => S.as('detail', () => S.updateNode(id, { note: v })), 350);
@@ -357,32 +363,6 @@ function onDetailInput(e) {
     saveTitle(sel, t.value);
     const ri = rowOf(sel)?.querySelector('.otitle');
     if (ri) ri.value = t.value;
-  }
-}
-
-// 메모 편집 보조: Tab 들여쓰기, Enter 목록 이어가기
-function onNoteKey(e) {
-  const ta = e.target;
-  if (!ta.matches('.d-note') || composing(e)) return;
-  const { selectionStart: s, selectionEnd: en, value: v } = ta;
-  const ls = v.lastIndexOf('\n', s - 1) + 1;
-  const line = v.slice(ls, s);
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    if (e.shiftKey) {
-      if (v.startsWith('  ', ls)) { ta.setRangeText('', ls, ls + 2, 'preserve'); ta.selectionStart = ta.selectionEnd = Math.max(ls, s - 2); }
-    } else { ta.setRangeText('  ', ls, ls, 'preserve'); ta.selectionStart = ta.selectionEnd = s + 2; }
-    ta.dispatchEvent(new Event('input', { bubbles: true }));
-  } else if (e.key === 'Enter' && !e.shiftKey && s === en) {
-    const m = line.match(/^(\s*)([-*•]|\d+[.)])\s+(.*)$/);
-    if (!m) return;
-    e.preventDefault();
-    if (!m[3].trim()) { ta.setRangeText('', ls, s, 'end'); }
-    else {
-      const bullet = /\d/.test(m[2]) ? `${parseInt(m[2], 10) + 1}${m[2].slice(-1)}` : m[2];
-      ta.setRangeText(`\n${m[1]}${bullet} `, s, s, 'end');
-    }
-    ta.dispatchEvent(new Event('input', { bubbles: true }));
   }
 }
 

@@ -4,10 +4,11 @@ import * as Sync from './sync.js';
 import * as Train from './train.js';
 import * as Tree from './outline.js';
 import * as GV from './graphview.js';
+import * as Images from './images.js';
 import { $, $$, esc, toast, openDialog, confirmDlg, download, copyText, timeAgo, todayKey, composing, debounce } from './util.js';
 
-const VIEWS = ['home', 'train', 'graph', 'tree', 'settings'];
-let current = 'home';
+const VIEWS = ['tree', 'graph', 'train', 'settings'];
+let current = 'tree';
 const dirty = new Set();
 
 const ICONS = {
@@ -21,7 +22,7 @@ const ICONS = {
   sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" class="ic" aria-hidden="true">${ICONS[n]}</svg>`;
-const LABELS = { home: '홈', train: '카드', graph: '그래프', tree: '트리', settings: '설정' };
+const LABELS = { tree: '정리', graph: '마인드맵', train: '카드 학습', settings: '설정' };
 
 // ---------- 시작 ----------
 if (!Sync.handleAuthReturn()) boot();
@@ -29,6 +30,7 @@ if (!Sync.handleAuthReturn()) boot();
 function boot() {
   S.load();
   applyTheme();
+  Images.init();
   $('#nav').innerHTML = `<div class="brand"><img src="icons/icon.svg" alt=""><div><b>갈래</b><small>경우의 수 트레이너</small></div></div>
     ${VIEWS.map((v) => `<a href="#${v}" data-view="${v}">${icon(v)}<span>${LABELS[v]}</span></a>`).join('')}
     <button class="nav-search" data-act="palette" title="찾기 (Ctrl+K)">${icon('search')}<span>찾기</span><kbd>Ctrl K</kbd></button>
@@ -37,7 +39,6 @@ function boot() {
   Train.init($('#view-train'), hooks);
   Tree.init($('#view-tree'), hooks);
   GV.init($('#view-graph'), hooks);
-  $('#view-home').addEventListener('click', onHomeClick);
   $('#view-settings').addEventListener('click', onSettingsClick);
   $('#view-settings').addEventListener('change', onSettingsChange);
   document.addEventListener('click', (e) => {
@@ -78,27 +79,18 @@ export function go(view, id) {
   if (location.hash === h) route(); else location.hash = h;
 }
 
-async function trainScope(id) {
-  if (Train.hasSession()) {
-    const r = await openDialog(`<div class="dlg-body"><p class="dlg-msg">진행 중인 세션이 있어요</p>
-      <p class="muted small">새 범위로 설정하면 지금 세션은 닫혀요. (이미 매긴 카드 기록은 남아요)</p>
-      <div class="dlg-actions"><button class="btn ghost" data-close="resume">이어서 하기</button><button class="btn primary" data-close="new">새로 설정</button></div></div>`);
-    if (r !== 'new') return go('train');
-  }
-  Train.discardSession();
-  Train.setScope(id);
-  go('train');
+function trainScope(id) {
+  go('train', id);
 }
 
 function route() {
   const [v, id] = location.hash.slice(1).split('/');
-  const view = VIEWS.includes(v) ? v : 'home';
+  const view = VIEWS.includes(v) ? v : 'tree';
   current = view;
   for (const x of VIEWS) $('#view-' + x).hidden = x !== view;
   for (const a of $$('#nav a')) a.classList.toggle('on', a.dataset.view === view);
   document.body.dataset.view = view;
-  if (view === 'home') renderHome();
-  else if (view === 'train') Train.render();
+  if (view === 'train') Train.show(id);
   else if (view === 'graph') GV.show(id);
   else if (view === 'tree') Tree.show(id);
   else if (view === 'settings') renderSettings();
@@ -109,7 +101,6 @@ function onStoreChange(o) {
   for (const v of VIEWS) if (v !== current) dirty.add(v);
   GV.markDirty();
   if (current === 'tree') Tree.onStoreChange(o);
-  else if (current === 'home') renderHome();
   else if (current === 'graph') GV.update();
   else if (current === 'settings' && o.src !== 'settings') renderSettings();
   else if (current === 'train' && o.src !== 'train') Train.render();
@@ -134,64 +125,8 @@ function renderSyncChip(i) {
   chip.innerHTML = `<i></i><span>${esc(label)}</span>`;
   chip.title = i.error || (i.email ? `${i.email} · 눌러서 지금 동기화` : '설정에서 Google Drive 연결');
   if (current === 'settings') renderSettings();
-  if (current === 'home') { const hs = $('#homeSync'); if (hs) hs.innerHTML = chip.innerHTML; }
 }
 setInterval(() => { if (Sync.info().status === 'ok') renderSyncChip(Sync.info()); }, 60e3);
-
-// ---------- 홈 ----------
-function renderHome() {
-  const el = $('#view-home');
-  const mm = S.masteryMap();
-  const roots = S.roots();
-  const ses = Train.sessionInfo();
-  const resume = Train.hasSession();
-  el.innerHTML = `<div class="page">
-    <header class="home-h">
-      <div><h1>갈래</h1><p class="sub">오늘 ${S.todayCount()}장 · 연속 ${S.streak()}일</p></div>
-    </header>
-    ${resume ? `<section class="panel resume" data-act="resume"><div><b>이어서 학습</b><span class="muted">${esc(ses.title)} · ${ses.i} / ${ses.cards.length}</span></div><button class="btn primary">계속</button></section>` : ''}
-    <section class="subjects">
-      ${roots.map((r) => {
-        const n = S.node(r);
-        const st = S.subtreeStats(r, mm);
-        const counts = Train.levelCounts([r]);
-        const lv = [...counts.keys()].sort((a, b) => a - b);
-        return `<div class="subj">
-          <div class="subj-top">
-            <div><b>${esc(n.title || '제목 없음')}</b><small class="muted">${st.count}개 갈래 · 숙련 ${Math.round(st.mastery * 100)}%</small></div>
-            <div class="subj-icons"><button class="icon-btn" data-graph="${r}" title="그래프">${icon('graph')}</button><button class="icon-btn" data-tree="${r}" title="편집">${icon('tree')}</button></div>
-          </div>
-          <div class="meter"><i style="width:${st.coverage * 100}%;--m:${st.mastery}"></i></div>
-          <div class="subj-levels">${lv.map((d) => `<button class="lv-start" data-start="${r}" data-lv="${d}"><b>${esc(S.levelName(d))}</b><span>${counts.get(d)}장</span></button>`).join('')}
-            ${lv.length > 1 ? `<button class="lv-start all" data-start="${r}"><b>전체</b><span>${[...counts.values()].reduce((a, b) => a + b, 0)}장</span></button>` : ''}</div>
-        </div>`;
-      }).join('') || `<div class="panel empty"><p>아직 과목이 없어요.</p><button class="btn primary" data-act="add-subject">+ 과목 만들기</button> <button class="btn" data-act="import">텍스트로 가져오기</button></div>`}
-      ${roots.length ? '<div class="home-more"><button class="btn ghost" data-act="add-subject">+ 과목</button><button class="btn ghost" data-act="import">텍스트로 가져오기</button></div>' : ''}
-    </section>
-    <footer class="home-foot"><span id="homeSync"></span></footer>
-  </div>`;
-  const chip = $('#syncChip');
-  $('#homeSync').innerHTML = chip ? `<button class="${chip.className}" data-act="sync-chip">${chip.innerHTML}</button>` : '';
-}
-
-async function onHomeClick(e) {
-  const b = e.target.closest('[data-act],[data-start],[data-graph],[data-tree]');
-  if (!b) return;
-  if (b.dataset.start) {
-    if (Train.hasSession() && !(await confirmDlg('진행 중인 학습을 닫고 새로 시작할까요?', { ok: '새로 시작' }))) return;
-    return Train.start([b.dataset.start], b.dataset.lv ? [+b.dataset.lv] : []);
-  }
-  if (b.dataset.graph) return go('graph', b.dataset.graph);
-  if (b.dataset.tree) return go('tree', b.dataset.tree);
-  switch (b.dataset.act) {
-    case 'resume': return go('train');
-    case 'import': return importDialog(null);
-    case 'add-subject': {
-      const id = S.addNode({ parent: null, title: '새 과목' });
-      return go('tree', id);
-    }
-  }
-}
 
 // ---------- 설정 ----------
 function renderSettings() {
