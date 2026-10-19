@@ -226,6 +226,14 @@ export class Graph {
       ctx.beginPath();
       ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
       ctx.fill();
+      if (n.more) {
+        // 접힌 갈래: 바깥 고리로 표시
+        ctx.strokeStyle = n.color;
+        ctx.lineWidth = 1.6 / k;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r + 3.5 / k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       if (n.id === this.sel || n.id === this.hover) {
         ctx.strokeStyle = C.ring;
         ctx.lineWidth = 2.5 / k;

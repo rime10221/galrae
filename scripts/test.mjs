@@ -70,27 +70,46 @@ const H = `
     document.activeElement.value = ''; key(document.activeElement, 'Backspace'); await sleep(30);
     out.backspaceDel = !S.node(nid);
     const gdm = S.findByTitle('임신과 당뇨병');
+    const endOf = (el) => { el.focus(); const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
     await go('#tree/' + gdm);
-    if (!$('.d-note')) { click($('.detail [data-act="edit"]')); await sleep(20); }
-    const ta = $('.d-note');
-    ta.value += '\n- 메모 [[임신과 감염질환]]'; ta.dispatchEvent(new Event('input', { bubbles: true }));
+    if (!$('.d-note-host .rich')) { click($('.detail [data-act="edit"]')); await sleep(20); }
+    // 보이는 대로 편집기: 원래 마크다운이 그대로 되살아나는지
+    const rich = $('.d-note-host .rich');
+    out.richRoundtrip = rich.querySelectorAll('mark').length >= 5 && rich.querySelectorAll('[data-li="1"]').length === 6;
+    endOf(rich.lastElementChild);
+    document.execCommand('insertParagraph'); document.execCommand('insertText', false, '메모 형광펜');
     await sleep(450);
-    out.noteSaved = S.node(gdm).note.includes('메모');
+    out.noteSaved = S.node(gdm).note.includes('메모 형광펜');
+    // 드래그(선택) 후 형광펜 버튼 → ==..== 로 저장, 기호를 직접 칠 필요 없음
+    const last = rich.lastElementChild;
+    const tn = [...last.childNodes].find((n) => n.nodeType === 3 && n.nodeValue.includes('형광펜'));
+    const rg = document.createRange(); rg.setStart(tn, tn.nodeValue.indexOf('형광펜')); rg.setEnd(tn, tn.nodeValue.indexOf('형광펜') + 3);
+    getSelection().removeAllRanges(); getSelection().addRange(rg);
+    click($('.d-note-host .ed-bar [data-ed="mark"]')); await sleep(450);
+    out.markBtn = S.node(gdm).note.includes('==형광펜==');
+    const wasList = /\n- 메모 ==형광펜==/.test(S.node(gdm).note);
+    click($('.d-note-host .ed-bar [data-ed="list"]')); await sleep(450);
+    out.listBtn = /\n- 메모 ==형광펜==/.test(S.node(gdm).note) !== wasList;
     const im = S.importOutline('# 내과\n## 순환기\n- 심부전\n\t> - BNP\n\t? 호흡곤란\n- 부정맥', null);
     const im2 = S.importOutline('# 내과\n## 순환기\n- 심부전\n- 판막', null);
     out.import = im.added === 4 && im2.added === 1 && im2.merged === 3;
-    out.inlineNotes = (await (async () => { await go('#tree'); return $$('.onote').length; })()) >= 2;
+    await go('#tree');
+    const closedFirst = $$('.onote').length === 0;
+    click($('[data-act="notes"]')); await sleep(30);
+    const allOpen = $$('.onote').length >= 3;
+    click($(`.orow[data-id="${gdm}"] [data-act="note"]`)); await sleep(30);
+    out.inlineNotes = closedFirst && allOpen && !$(`.onote[data-note="${gdm}"]`);
     // 사진 붙여넣기 → IndexedDB 저장 + 메모에 참조 + 미리보기에서 표시
     await go('#tree/' + gdm);
-    if (!$('.d-note')) { click($('.detail [data-act="edit"]')); await sleep(20); }
+    if (!$('.d-note-host .rich')) { click($('.detail [data-act="edit"]')); await sleep(20); }
     const cv = document.createElement('canvas'); cv.width = 40; cv.height = 30;
     cv.getContext('2d').fillRect(0, 0, 40, 30);
     const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
     const dt = new DataTransfer(); dt.items.add(new File([blob], 'a.png', { type: 'image/png' }));
-    const ta2 = $('.d-note');
-    ta2.selectionStart = ta2.selectionEnd = ta2.value.length;
-    ta2.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
-    await sleep(600);
+    const r2 = $('.d-note-host .rich');
+    endOf(r2.lastElementChild);
+    r2.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    await sleep(800);
     out.imgSaved = /!\[\]\(img:i[a-z0-9]+\)/.test(S.node(gdm).note) && S.imageList().length === 1;
     click($('.detail [data-act="preview"]')); await sleep(300);
     out.imgShown = $('.note-view img.md-img')?.dataset.state === 'ok';
@@ -133,8 +152,8 @@ const H = `
     await sleep(300);
     out.noteCard = !!$('#gInfo .gi-note .md') && $('#gInfo .gi-title').textContent.includes('임신과 당뇨병');
     click($('#gInfo [data-act="edit"]')); await sleep(30);
-    const gta = $('#gInfo .gi-note-in');
-    gta.value += '\n- 그래프에서 편집'; gta.dispatchEvent(new Event('input', { bubbles: true }));
+    const gr = $('#gInfo .gi-note-host .rich');
+    endOf(gr.lastElementChild); document.execCommand('insertParagraph'); document.execCommand('insertText', false, '그래프에서 편집');
     click($('#gInfo [data-act="done"]')); await sleep(60);
     out.graphEdit = S.node(gdm).note.includes('그래프에서 편집') && !!$('#gInfo .gi-note .md');    await go('#graph');
     await sleep(900);
@@ -151,7 +170,13 @@ const H = `
     }
     const sameDepthSameX = g.nodes.every((n) => g.nodes.every((m) => m.depth !== n.depth || Math.abs(m.tx - n.tx) < 0.01));
     out.graph = { colsOk, rowsOk, sameDepthSameX, settled: g.nodes.every((n) => Math.hypot(n.x - n.tx, n.y - n.ty) < 2) };
-    click($('#gLayout [data-v="force"]')); await sleep(200);
+    // 마인드맵: 누르면 바로 아래 레벨이 펼쳐지고, 다시 누르면 접힌다
+    const inf = S.findByTitle('임신과 감염질환'), gbs = S.findByTitle('B군 연쇄상구균(GBS)');
+    const hiddenBefore = !g.map.has(gbs);
+    g.select(inf, true); await sleep(100);
+    const shown = g.map.has(gbs);
+    g.select(inf, true); await sleep(100);
+    out.mapToggle = hiddenBefore && shown && !g.map.has(gbs);    click($('#gLayout [data-v="force"]')); await sleep(200);
     click($('#gLayout [data-v="tree"]')); await sleep(200);
     key(document.body, 'k', { ctrlKey: true }); await sleep(30);
     const pin = $('dialog.palette input');
@@ -170,9 +195,12 @@ const H = `
   ok('트리: Tab 들여쓰기', r.tabIndent);
   ok('트리: Shift+Tab 내어쓰기', r.shiftTab);
   ok('트리: 빈 항목 Backspace 삭제', r.backspaceDel);
-  ok('상세: 외울 것 저장', r.noteSaved);
+  ok('편집기: 기존 내용이 보이는 대로(형광펜·목록)', r.richRoundtrip);
+  ok('편집기: 입력 저장', r.noteSaved);
+  ok('편집기: 선택 후 형광펜 버튼', r.markBtn);
+  ok('편집기: 목록 버튼', r.listBtn);
   ok('텍스트 가져오기 + 합치기', r.import);
-  ok('트리: 외울 것 펼쳐 보기', r.inlineNotes);
+  ok('정리: 외울 것 토글(기본 접힘·모두 펼치기·하나 접기)', r.inlineNotes);
   ok('사진: 붙여넣기 저장', r.imgSaved);
   ok('사진: 외울 것에 표시', r.imgShown);
   ok('카드: 세트 목록', r.library);
@@ -187,6 +215,7 @@ const H = `
   ok('내 세트: 여러 범위 묶기', r.preset);
   ok('마인드맵: 노트 카드', r.noteCard);
   ok('마인드맵: 노트 카드에서 편집', r.graphEdit);
+  ok('마인드맵: 누르면 하위 펼치기/다시 누르면 접기', r.mapToggle);
   ok('마인드맵: 하위 갈래는 항상 오른쪽 열', r.graph.colsOk);
   ok('마인드맵: 같은 깊이는 같은 열', r.graph.sameDepthSameX);
   ok('마인드맵: 형제는 순서대로 위→아래', r.graph.rowsOk);
@@ -204,6 +233,14 @@ if (SHOTS) {
     library: async () => go('#train/list'),
     set: async (S) => go('#train/' + S.findByTitle('임신의 내외과적 질환')),
     tree: async (S) => go('#tree/' + S.findByTitle('임신과 당뇨병')),
+    treeEdit: async (S) => {
+      await go('#tree/' + S.findByTitle('임신과 당뇨병'));
+      const e = $('.detail [data-act="edit"]'); if (e && !$('.d-note-host')) click(e);
+      await sleep(100);
+      const r = $('.d-note-host .rich'); const t = r.children[1].firstChild.nextSibling || r.children[1].lastChild;
+      r.focus(); const rg = document.createRange(); rg.selectNodeContents(r.children[0]); getSelection().removeAllRanges(); getSelection().addRange(rg);
+      await sleep(100);
+    },
     graph: async () => go('#graph'),
     graphSel: async (S) => go('#graph/' + S.findByTitle('임신과 당뇨병')),
     card: async (S) => {

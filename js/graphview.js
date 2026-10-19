@@ -2,12 +2,18 @@
 import * as S from './store.js';
 import { Graph } from './graph.js';
 import * as Ed from './editor.js';
-import { $, esc, renderMd, debounce } from './util.js';
+import { $, esc, renderMd, debounce, lsGet, lsSet } from './util.js';
 
 let el, api, g;
 let scope = '';      // 특정 과목만 보기
 let local = false;   // 선택 갈래 주변만 보기
 let dirty = true;
+// 마인드맵에서 펼친 갈래 (누르면 바로 아래 레벨이 보임)
+const openSaved = lsGet('galrae.v1.mapOpen', null);
+let open = new Set(openSaved || []);
+let openInit = !openSaved;
+let lastSel = null;
+const saveOpen = () => lsSet('galrae.v1.mapOpen', [...open]);
 // 애플 시스템 색 [라이트, 다크]
 const PALETTE = [
   ['#007aff', '#0a84ff'], ['#ff9500', '#ff9f0a'], ['#34c759', '#30d158'], ['#af52de', '#bf5af2'],
@@ -25,7 +31,7 @@ export function init(root, hooks) {
       <select class="input" id="gScope" title="범위"></select>
       <div class="seg" id="gLayout"><button data-v="tree">마인드맵</button><button data-v="force">자유</button></div>
       <div class="seg" id="gColor"><button data-v="subject">분류색</button><button data-v="mastery">숙련도</button></div>
-      <label class="g-depth" title="표시 깊이">깊이 <select class="input" id="gDepth"></select></label>
+      <label class="g-depth" title="이 단계까지 한 번에 펼치기">펼치기 <select class="input" id="gDepth"></select></label>
       <button class="btn small" id="gLocal" title="선택한 갈래 주변만">주변만</button>
       <button class="btn small" id="gFit" title="전체 보기">⤢</button>
     </div>
@@ -36,7 +42,7 @@ export function init(root, hooks) {
     </div>
   </div>`;
   g = new Graph($('#gCanvas', el), {
-    onSelect: (id) => { flushEdit(); if (local && id) refresh(); showInfo(id); },
+    onSelect: (id) => { flushEdit(); onNodeTap(id); },
     onOpen: (id) => api.go('tree', id),
   });
   $('#gLayout', el).addEventListener('click', (e) => {
@@ -52,7 +58,13 @@ export function init(root, hooks) {
     S.saveSettings({ graphColor: v });
     refresh();
   });
-  $('#gDepth', el).addEventListener('change', (e) => { S.saveSettings({ graphDepth: +e.target.value }); refresh(true); });
+  $('#gDepth', el).addEventListener('change', (e) => {
+    const n = +e.target.value;
+    open = new Set(S.descendants(null).filter((x) => !n || S.depth(x) < n));
+    saveOpen();
+    e.target.value = '';
+    refresh(true);
+  });
   $('#gScope', el).addEventListener('change', (e) => { scope = e.target.value; refresh(true); });
   $('#gLocal', el).addEventListener('click', () => {
     local = !local;
@@ -88,10 +100,27 @@ export function show(id) {
 
 export function themeChanged() { if (g) { g.readColors(); g.kick(0); } }
 
+// 누르면: 접혀 있으면 바로 아래 레벨 펼치기, 이미 펼친 걸 다시 누르면 접기
+function onNodeTap(id) {
+  if (!id) { lastSel = null; return showInfo(null); }
+  if (!local && S.children(id).length) {
+    if (open.has(id) && lastSel === id) open.delete(id); else open.add(id);
+    saveOpen();
+    refresh();
+  } else if (local) refresh();
+  lastSel = id;
+  showInfo(id);
+  g.centerOn(id, Math.max(g.view.k, 0.9), infoOffset());
+}
+
 function focus(id) {
+  // 경로를 펼쳐서 보이게
+  for (const n of S.path(id).slice(0, -1)) open.add(n.id);
+  saveOpen();
+  lastSel = id;
   g.select(id);
   if (local) refresh();
-  else if (!g.map.has(id)) { scope = ''; S.saveSettings({ graphDepth: 0 }); refresh(); }
+  else { if (!g.map.has(id)) scope = ''; refresh(); }
   showInfo(id);
   g.centerOn(id, 1.3, infoOffset());
 }
@@ -120,8 +149,7 @@ function refresh(refit = false) {
   dirty = false;
   const md = S.maxDepth();
   const depthSel = $('#gDepth', el);
-  depthSel.innerHTML = `<option value="0">전체</option>` + Array.from({ length: md }, (_, i) => `<option value="${i + 1}">${i + 1}단계</option>`).join('');
-  depthSel.value = String(S.settings.graphDepth || 0);
+  depthSel.innerHTML = `<option value="" disabled selected>단계</option>` + Array.from({ length: md }, (_, i) => `<option value="${i + 1}">${S.levelName(i + 1)}까지</option>`).join('') + `<option value="0">모두</option>`;
   const scopeSel = $('#gScope', el);
   if (scope && !S.node(scope)) scope = '';
   scopeSel.innerHTML = `<option value="">모든 과목</option>` + S.roots().map((r) => `<option value="${r}">${esc(S.node(r).title || '제목 없음')}</option>`).join('');
@@ -129,8 +157,9 @@ function refresh(refit = false) {
   syncButtons();
 
   let ids = scope ? S.descendants(scope) : S.descendants(null);
-  const maxD = S.settings.graphDepth || 0;
-  if (maxD) ids = ids.filter((x) => S.depth(x) <= maxD);
+  if (openInit) { S.roots().forEach((r) => open.add(r)); openInit = false; saveOpen(); }
+  // 펼친 갈래의 바로 아래만 보인다
+  if (!local) ids = ids.filter((x) => S.path(x).slice(0, -1).every((a) => open.has(a.id)));
   if (local && g.sel && S.node(g.sel)) {
     // 선택 갈래의 경로 + 형제 + 2단계 하위 + 링크
     const keep = new Set();
@@ -165,14 +194,15 @@ function refresh(refit = false) {
     }
     const tree = S.settings.graphLayout === 'tree';
     const r = tree ? Math.max(4.5, 11 - d * 1.8) : Math.min(24, 4 + Math.sqrt(size) * 2.4 + (d === 1 ? 4 : 0));
-    return { id, parent: S.parentOf(id), label: n.title || '제목 없음', depth: d, color, r };
+    const hidden = !local && !open.has(id) ? S.children(id).length : 0;
+    return { id, parent: S.parentOf(id), label: (n.title || '제목 없음') + (hidden ? `  +${hidden}` : ''), depth: d, color, r, more: hidden };
   });
   g.setLayout(S.settings.graphLayout);
   g.setData(list, links());
   g.highlight = g.sel ? new Set(S.path(g.sel).map((n) => n.id)) : null;
   $('#gLegend', el).innerHTML = colorMode === 'mastery'
     ? `<span><i style="background:hsl(0,65%,48%)"></i>약함</span><span><i style="background:hsl(62,65%,48%)"></i>보통</span><span><i style="background:hsl(125,65%,46%)"></i>강함</span><span><i style="background:${dark ? '#4a4d57' : '#c4c6cf'}"></i>미학습</span>`
-    : `<span>${ids.length}개 갈래</span><span class="muted">더블클릭: 편집 · 휠/핀치: 확대</span>`;
+    : `<span>${ids.length}개 갈래</span><span class="muted">누르면 펼치기/접기 · 더블클릭: 정리에서 보기</span>`;
   if (refit) setTimeout(() => g.fit(g.nodes.length > 1 ? 450 : 0), 30);
 }
 
@@ -192,6 +222,7 @@ function links() {
 
 // ---------- 노트 카드 (선택한 갈래의 외울 것을 크게, 그 자리에서 편집) ----------
 let editing = false;
+let gEd = null;
 const saveNote = debounce((id, v) => S.as('graph-edit', () => S.updateNode(id, { note: v })), 350);
 const saveTitle = debounce((id, v) => S.as('graph-edit', () => S.updateNode(id, { title: v })), 300);
 
@@ -215,7 +246,7 @@ function showInfo(id) {
     </div>
     ${editing
       ? `<input class="input gi-title-in" value="${esc(n.title)}" placeholder="제목">
-         <div class="ed">${Ed.toolbarHtml()}<textarea class="input gi-note-in" rows="14" placeholder="${esc(Ed.PLACEHOLDER)}">${esc(n.note || '')}</textarea></div>
+         <div class="gi-note-host"></div>
          <div class="gi-actions"><button class="btn primary" data-act="done">완료</button></div>`
       : `<h2 class="gi-title">${esc(n.title || '제목 없음')}${n.star ? ' <span class="st">★</span>' : ''}</h2>
          <div class="gi-sub muted small">${esc(S.levelName(p.length))}${sibs.length > 1 ? ` · 같은 층 ${sibs.length}가지 중 ${sibs.indexOf(id) + 1}번째` : ''}</div>
@@ -232,9 +263,7 @@ function showInfo(id) {
            <button class="btn small ghost" data-act="local">${local ? '전체 보기' : '주변만'}</button>
          </div>`}`;
   if (editing) {
-    const ta = $('.gi-note-in', box);
-    Ed.bind($('.ed', box), ta);
-    ta.addEventListener('input', () => saveNote(id, ta.value));
+    gEd = Ed.mount($('.gi-note-host', box), n.note || '', (v) => saveNote(id, v), { rows: 12 });
     const ti = $('.gi-title-in', box);
     ti.addEventListener('input', () => saveTitle(id, ti.value));
   }
@@ -249,7 +278,7 @@ function onInfoClick(e) {
   switch (b.dataset.act) {
     case 'close': flushEdit(); g.select(null); showInfo(null); if (local) { local = false; refresh(true); } return;
     case 'grow': $('#gInfo', el).classList.toggle('grown'); return;
-    case 'edit': editing = true; showInfo(g.sel); $('.gi-note-in', el)?.focus(); return;
+    case 'edit': editing = true; showInfo(g.sel); gEd?.focus(); return;
     case 'done': flushEdit(); editing = false; refresh(); return showInfo(g.sel);
     case 'train': return api.train(g.sel);
     case 'tree': return api.go('tree', g.sel);
@@ -261,11 +290,11 @@ function flushEdit() {
   if (!editing) return;
   saveNote.cancel(); saveTitle.cancel();
   const id = $('#gInfo', el).dataset.id;
-  const ta = $('.gi-note-in', el), ti = $('.gi-title-in', el);
+  const ti = $('.gi-title-in', el);
   const n = S.node(id);
   if (!n) return;
   const patch = {};
-  if (ta && ta.value !== n.note) patch.note = ta.value;
+  if (gEd && document.contains(gEd.rich)) { const v = gEd.value(); if (v !== (n.note || '')) patch.note = v; }
   if (ti && ti.value !== n.title) patch.title = ti.value;
   if (Object.keys(patch).length) S.as('graph-edit', () => S.updateNode(id, patch));
 }

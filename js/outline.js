@@ -7,8 +7,11 @@ import { $, $$, esc, debounce, renderMd, lsGet, lsSet, composing, toast, confirm
 let el, api;
 let sel = null;          // 상세 패널에 열린 노드
 let filter = '';
+let noteEd = null; // 상세 패널의 외울 것 편집기
 let preview = lsGet('galrae.v1.notePreview', true);
-let showNotes = lsGet('galrae.v1.showNotes', true); // 트리에서 외울 것을 줄 아래에 펼쳐 보기
+// 트리에서 외울 것을 줄 아래에 펼쳐 보기 (갈래마다 토글, 기본은 접힘)
+let notesOpen = new Set(lsGet('galrae.v1.notesOpen', []));
+const saveNotesOpen = () => lsSet('galrae.v1.notesOpen', [...notesOpen]);
 let collapsed = new Set(lsGet('galrae.v1.collapsed', []));
 const saveCollapsed = () => lsSet('galrae.v1.collapsed', [...collapsed]);
 
@@ -21,7 +24,7 @@ export function init(root, hooks) {
       <div class="toolbar">
         <input class="input search" id="treeFilter" placeholder="갈래 · 내용 · 단서 검색" type="search">
         <div class="tb-btns">
-          <button class="btn small ${showNotes ? 'primary' : ''}" data-act="notes" id="notesBtn" title="외울 것을 트리에 펼쳐 보기">외울 것 보기</button>
+          <button class="btn small" data-act="notes" id="notesBtn" title="모든 외울 것 펼치기/접기">외울 것 모두 펼치기</button>
           <button class="btn small" data-act="expand-all" title="모두 펼치기">펼치기</button>
           <button class="btn small" data-act="collapse-all" title="모두 접기">접기</button>
           <button class="btn small" data-act="import">가져오기</button>
@@ -83,7 +86,7 @@ export function onStoreChange(o) {
   // 동기화 등 외부 변경: 편집 중인 칸은 건드리지 않고 포커스를 되살린다
   const a = document.activeElement;
   const det = $('#detail', el);
-  if (a && det.contains(a) && a.matches('input,textarea')) return renderList();
+  if (a && det.contains(a) && a.matches('input,textarea,[contenteditable]')) return renderList();
   const fid = a?.matches?.('.otitle') ? a.closest('.orow').dataset.id : null;
   const caret = fid ? a.selectionStart : 0;
   render();
@@ -100,6 +103,8 @@ function matchSet() {
 
 function renderList() {
   const list = $('#olist', el);
+  const nb = $('#notesBtn', el);
+  if (nb) { const w = S.descendants(null).filter((x) => S.node(x).note?.trim()); const all = w.length && w.every((x) => notesOpen.has(x)); nb.textContent = all ? '외울 것 모두 접기' : '외울 것 모두 펼치기'; nb.classList.toggle('primary', !!all); }
   const all = S.descendants(null);
   $('#treeStat', el).textContent = `갈래 ${all.length} · 외울 것 ${all.filter((x) => S.node(x).note?.trim()).length}`;
   const ms = matchSet();
@@ -112,7 +117,7 @@ function renderList() {
     const closed = collapsed.has(id) && !ms;
     const m = mm.get(id);
     const meta = [
-      n.note?.trim() ? '<i title="외울 것 있음">📝</i>' : '',
+      n.note?.trim() ? `<button class="note-tg ${notesOpen.has(id) ? 'on' : ''}" data-act="note" tabindex="-1" title="외울 것 펼치기/접기">📝 외울 것</button>` : '',
       n.cues?.some((c) => c.trim()) ? `<i title="문제 단서">?${n.cues.filter((c) => c.trim()).length}</i>` : '',
       kids.length ? `<i class="cnt" title="하위 갈래">${kids.length}</i>` : '',
       n.star ? '<i class="st">★</i>' : '',
@@ -123,7 +128,7 @@ function renderList() {
       <button class="bullet ${closed && kids.length ? 'has' : ''}" data-act="open" tabindex="-1" aria-label="상세"></button>
       <input class="otitle" value="${esc(n.title)}" placeholder="제목 없음" enterkeyhint="next" autocomplete="off">
       <span class="ometa">${meta}</span></div>`);
-    if (showNotes && n.note?.trim()) rows.push(`<div class="onote md" data-note="${id}" style="--d:${d}">${renderMd(n.note)}</div>`);
+    if (notesOpen.has(id) && n.note?.trim()) rows.push(`<div class="onote md" data-note="${id}" style="--d:${d}">${renderMd(n.note)}</div>`);
     if (!closed) for (const k of kids) walk(k, d + 1);
   };
   S.roots().forEach((r) => walk(r, 0));
@@ -220,6 +225,7 @@ function onListClick(e) {
   const id = b.closest('.orow')?.dataset.id;
   if (!id) return;
   if (b.dataset.act === 'toggle') toggle(id);
+  if (b.dataset.act === 'note') { notesOpen.has(id) ? notesOpen.delete(id) : notesOpen.add(id); saveNotesOpen(); renderList(); }
   if (b.dataset.act === 'open') openDetail(id);
 }
 
@@ -287,10 +293,13 @@ function onToolbar(e) {
   const b = e.target.closest('[data-act]');
   if (!b) return;
   switch (b.dataset.act) {
-    case 'notes':
-      showNotes = !showNotes; lsSet('galrae.v1.showNotes', showNotes);
-      b.classList.toggle('primary', showNotes);
+    case 'notes': {
+      const withNote = S.descendants(null).filter((x) => S.node(x).note?.trim());
+      const allOpen = withNote.length && withNote.every((x) => notesOpen.has(x));
+      notesOpen = allOpen ? new Set() : new Set(withNote);
+      saveNotesOpen();
       return renderList();
+    }
     case 'expand-all': collapsed.clear(); saveCollapsed(); return renderList();
     case 'collapse-all':
       for (const id of S.descendants(null)) if (S.children(id).length && S.depth(id) >= 1) collapsed.add(id);
@@ -330,7 +339,7 @@ function renderDetail() {
         <div class="seg tiny"><button class="${preview ? '' : 'on'}" data-act="edit">편집</button><button class="${preview ? 'on' : ''}" data-act="preview">보기</button></div></div>
       ${preview
         ? `<div class="md note-view" data-act="edit">${renderMd(n.note) || '<span class="muted">비어 있어요. 눌러서 편집</span>'}</div>`
-        : `<div class="ed">${Ed.toolbarHtml()}<textarea class="d-note input" rows="12" placeholder="${esc(Ed.PLACEHOLDER)}">${esc(n.note || '')}</textarea></div>`}
+        : `<div class="d-note-host"></div>`}
     </div>
     <div class="d-field">
       <div class="d-label"><span>하위 갈래 ${kids.length}</span><button class="link" data-act="add-child">+ 하위 추가</button></div>
@@ -346,8 +355,9 @@ function renderDetail() {
       <button class="btn danger ghost" data-act="del">삭제</button>
     </div>
   </div>`;
-  const ed = $('.ed', det);
-  if (ed) Ed.bind(ed, $('.d-note', det));
+  const host = $('.d-note-host', det);
+  const id = sel;
+  noteEd = host ? Ed.mount(host, n.note || '', (v) => saveNote(id, v), { rows: 12 }) : null;
 }
 
 const saveNote = debounce((id, v) => S.as('detail', () => S.updateNode(id, { note: v })), 350);
@@ -357,8 +367,7 @@ const saveTitle = debounce((id, v) => S.as('detail', () => S.updateNode(id, { ti
 function onDetailInput(e) {
   const t = e.target;
   if (!sel) return;
-  if (t.matches('.d-note')) saveNote(sel, t.value);
-  else if (t.matches('.d-cues')) saveCues(sel, t.value);
+  if (t.matches('.d-cues')) saveCues(sel, t.value);
   else if (t.matches('.d-title')) {
     saveTitle(sel, t.value);
     const ri = rowOf(sel)?.querySelector('.otitle');
@@ -378,7 +387,7 @@ async function onDetailClick(e) {
   switch (b.dataset.act) {
     case 'close': el.classList.remove('detail-open'); return;
     case 'star': S.as('outline', () => S.updateNode(sel, { star: !n.star })); render(); return;
-    case 'edit': if (preview) { flushDetail(); preview = false; lsSet('galrae.v1.notePreview', false); renderDetail(); $('.d-note', el)?.focus(); } return;
+    case 'edit': if (preview) { flushDetail(); preview = false; lsSet('galrae.v1.notePreview', false); renderDetail(); noteEd?.focus(); } return;
     case 'preview': flushDetail(); preview = true; lsSet('galrae.v1.notePreview', true); return renderDetail();
     case 'add-child': return addChild(sel);
     case 'train': return api.train(sel);
@@ -398,11 +407,11 @@ async function onDetailClick(e) {
 
 function flushDetail() {
   saveNote.cancel(); saveCues.cancel(); saveTitle.cancel();
-  const nt = $('.d-note', el), cu = $('.d-cues', el), ti = $('.d-title', el);
+  const cu = $('.d-cues', el), ti = $('.d-title', el);
   const n = S.node(sel);
   if (!n) return;
   const patch = {};
-  if (nt && nt.value !== n.note) patch.note = nt.value;
+  if (noteEd && document.contains(noteEd.rich)) { const v = noteEd.value(); if (v !== (n.note || '')) patch.note = v; }
   if (cu) { const c = cu.value.split('\n').map((x) => x.trim()).filter(Boolean); if (c.join('\n') !== (n.cues || []).join('\n')) patch.cues = c; }
   if (ti && ti.value !== n.title) patch.title = ti.value;
   if (Object.keys(patch).length) S.as('detail', () => S.updateNode(sel, patch));

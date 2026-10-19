@@ -562,3 +562,30 @@ textarea.drop { box-shadow: 0 0 0 3px var(--accent) !important; }
   .term-row { grid-template-columns: minmax(0, 1fr) 8px auto; }
   .term-r { grid-column: 1 / 2; grid-row: 2; }
 }
+/* ---------- 보이는 대로 편집기 ---------- */
+.ed-sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 2px; }
+.ed-flex { flex: 1; }
+.ed-btn.ghost { background: none; color: var(--accent); }
+.ed-bar.raw-mode .ed-btn:not(.ghost) { opacity: .75; }
+.rich { min-height: calc(var(--rows, 10) * 1.6em); max-height: 60vh; overflow: auto; padding: 12px 14px; border-radius: 12px; background: var(--bg3); outline: none; line-height: 1.75; font-size: 15.5px; transition: box-shadow .15s, background .15s; }
+.rich:focus { background: var(--card); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent) 35%, transparent); }
+.rich.is-empty::before { content: attr(data-ph); color: var(--muted2); position: absolute; pointer-events: none; max-width: 90%; }
+.rich > div { padding-left: calc(var(--lv, 0) * 1.35em); position: relative; min-height: 1.75em; }
+.rich > div[data-lv="1"] { --lv: 1; } .rich > div[data-lv="2"] { --lv: 2; } .rich > div[data-lv="3"] { --lv: 3; } .rich > div[data-lv="4"] { --lv: 4; }
+.rich > div[data-li="1"] { padding-left: calc(var(--lv, 0) * 1.35em + 1.25em); }
+.rich > div[data-li="1"]::before { content: '•'; position: absolute; left: calc(var(--lv, 0) * 1.35em + .2em); color: var(--accent); font-weight: 700; }
+.rich > div[data-li="1"]:not([data-lv="0"])::before { content: '◦'; color: var(--muted2); }
+.rich mark { background: var(--mark); color: inherit; border-radius: 4px; padding: 0 2px; font-weight: 600; }
+.rich b { font-weight: 700; }
+.rich .md-img { cursor: default; max-height: 260px; }
+.rich.drop { box-shadow: 0 0 0 3px var(--accent); }
+.ed textarea.raw { font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px; min-height: 220px; }
+.ed-bubble { position: fixed; z-index: 200; display: flex; gap: 2px; padding: 4px; border-radius: 12px; background: rgba(40, 40, 44, .92); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: 0 8px 30px rgba(0,0,0,.3); }
+.ed-bubble button { border: 0; background: none; color: #f5f5f7; padding: 6px 10px; border-radius: 8px; font-size: 13.5px; font-weight: 500; white-space: nowrap; }
+.ed-bubble button:hover { background: rgba(255,255,255,.12); }
+.ed-bubble .ed-mark { color: #1d1d1f; }
+
+/* 정리: 외울 것 토글 */
+.note-tg { border: 0; background: var(--bg3); color: var(--muted); font-size: 12px; padding: 2px 8px; border-radius: 99px; }
+.note-tg:hover { color: var(--accent); }
+.note-tg.on { background: var(--accent-2); color: var(--accent); }

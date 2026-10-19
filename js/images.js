@@ -90,7 +90,7 @@ export function init() {
   // 사진 누르면 크게 보기
   document.addEventListener('click', (e) => {
     const img = e.target.closest('.md-img');
-    if (!img || !img.src || e.target.closest('.flip:not(.flipped)')) return;
+    if (!img || !img.src || e.target.closest('.flip:not(.flipped)') || e.target.closest('[contenteditable="true"]')) return;
     e.preventDefault();
     e.stopPropagation();
     openDialog(`<div class="lightbox" data-close=""><img src="${img.src}" alt=""></div>`, { cls: 'lb' });
