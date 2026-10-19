@@ -737,6 +737,13 @@ textarea.drop { box-shadow: 0 0 0 3px var(--accent) !important; }
 :is(.note-view, .gi-note, .back-body, .onote) .md-img:not([data-state="loading"]):not([data-state="missing"]) {
   width: 100%; height: auto; max-height: 85vh; max-height: 85dvh; object-fit: contain; background: none; border-radius: 10px;
 }
+/* 읽기 화면(확대 가능한 곳): 사진은 화면 폭에 꽉 차게 시작해서, 확대한 만큼 같이 커진다 (넘치면 사진만 옆으로 밀어 보기) */
+.img-pan { display: block; margin: 8px 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; border-radius: 10px; }
+.img-pan > .md-img { margin: 0; }
+:is(.note-view, .gi-note) > .pz-in .md-img:not([data-state="loading"]):not([data-state="missing"]),
+.back-body .md .md-img:not([data-state="loading"]):not([data-state="missing"]) {
+  width: calc(100% * var(--read-zoom, 1)); max-width: none; max-height: none;
+}
 .onote .md-img:not([data-state]) , .onote .md-img[data-state="ok"] { max-height: 60vh; }
 .rich .md-img { max-height: 50vh; }
 

@@ -142,8 +142,9 @@ export function inlineMd(s, opt = {}) {
   const codes = [];
   x = x.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
   // 사진: ![설명](img:ID) 은 기기/드라이브에 저장된 사진, ![설명](https://...) 은 웹 이미지
-  x = x.replace(/!\[([^\]]*)\]\(img:([A-Za-z0-9]+)\)/g, '<img class="md-img" data-img="$2" alt="$1">');
-  x = x.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img class="md-img" src="$2" alt="$1" loading="lazy">');
+  // 사진은 옆으로 밀어 볼 수 있는 칸에 (확대하면 사진만 화면보다 넓어진다)
+  x = x.replace(/!\[([^\]]*)\]\(img:([A-Za-z0-9]+)\)/g, '<span class="img-pan"><img class="md-img" data-img="$2" alt="$1"></span>');
+  x = x.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<span class="img-pan"><img class="md-img" src="$2" alt="$1" loading="lazy"></span>');
   x = x.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   x = x.replace(/==(.+?)==/g, opt.cloze ? '<span class="cloze" tabindex="0">$1</span>' : '<mark>$1</mark>');
   x = x.replace(/~~(.+?)~~/g, '<s>$1</s>');
