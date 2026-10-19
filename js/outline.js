@@ -4,6 +4,7 @@
 // ⠿ 를 끌어서 순서 바꾸기 (줄 위/아래에 놓으면 그 앞/뒤, 가운데에 놓으면 그 갈래의 하위로)
 import * as S from './store.js';
 import * as Ed from './editor.js';
+import * as Zoom from './zoom.js';
 import { $, $$, esc, debounce, renderMd, firstLine, lsGet, lsSet, composing, toast, confirmDlg, openDialog } from './util.js';
 
 let el, api;
@@ -512,7 +513,7 @@ function renderDetail() {
     ${!noteOpen ? noteButton(n) : `<div class="d-field note-main">
       <div class="d-label note-head"><span>외울 것</span>
         <button class="btn ghost small" data-act="note-close" title="외울 것 접기">접기 ▴</button>
-        <span class="save-state" id="saveState">${preview ? '' : '자동 저장돼요'}</span>
+        ${preview && (n.note || '').trim() ? Zoom.ctlHtml() : `<span class="save-state" id="saveState">${preview ? '' : '자동 저장돼요'}</span>`}
         <div class="seg tiny"><button class="${preview ? '' : 'on'}" data-act="edit">편집</button><button class="${preview ? 'on' : ''}" data-act="preview">보기</button></div>
         <button class="icon-btn small" data-act="full" title="크게 보기">${$('#detail', el).classList.contains('note-full') ? '✕' : '⤢'}</button>
         ${preview ? '' : '<button class="btn primary small" data-act="save" title="저장 (Ctrl+S)">저장</button>'}</div>

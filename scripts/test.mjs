@@ -195,9 +195,15 @@ const H = `
       const pv = $('.note-view.pz');
       const r = pv.getBoundingClientRect();
       pv.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100, clientX: r.left + 20, clientY: r.top + 20 })); await sleep(30);
-      const zoomedIn = /scale\(/.test($('.note-view .pz-in').style.transform) && !$('.pz-reset').hidden;
-      click($('.pz-reset')); await sleep(30);
-      out.pinchZoom = zoomedIn && !$('.note-view .pz-in').style.transform && $('.pz-reset').hidden;
+      const lv = () => +getComputedStyle(document.documentElement).getPropertyValue('--read-zoom');
+      const w0 = $('.note-view .pz-in').scrollWidth <= $('.note-view').clientWidth + 1;
+      const zoomedIn = lv() > 1.5 && $('.zoom-pct').textContent !== '100%';
+      // 확대해도 옆으로 잘리지 않음 (줄바꿈)
+      const noClip = w0 && $('.note-view').scrollWidth <= $('.note-view').clientWidth + 1;
+      click($('[data-zoom="+"]')); await sleep(10);
+      const plus = lv() > 1.9;
+      click($('[data-zoom="0"]')); await sleep(30);
+      out.pinchZoom = zoomedIn && noClip && plus && lv() === 1 && $('.zoom-pct').textContent === '100%';
       // 편집 잠금: 다른 갈래를 갔다 와도 읽기부터, 읽기 화면을 눌러도 편집 안 됨, 편집 버튼으로만
       click($('.detail [data-act="edit"]')); await sleep(30);
       const editing = !!$('.d-note-host .rich');

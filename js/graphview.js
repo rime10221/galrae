@@ -2,6 +2,7 @@
 import * as S from './store.js';
 import { Graph } from './graph.js';
 import * as Ed from './editor.js';
+import * as Zoom from './zoom.js';
 import { $, esc, renderMd, debounce, lsGet, lsSet } from './util.js';
 
 let el, api, g;
@@ -311,6 +312,7 @@ function showInfo(id) {
          }).join('')}</div></div>` : ''}
          ${sibs.length > 1 ? `<div class="gi-sec"><h4>같은 층</h4><div class="chips">${sibs.map((s) => `<button class="chip ${s === id ? 'on' : ''}" data-focus="${s}">${esc(S.node(s).title)}</button>`).join('')}</div></div>` : ''}
          <div class="gi-actions">
+           ${note ? Zoom.ctlHtml() : ''}
            <button class="btn small" data-act="edit">✎ 편집</button>
            <button class="btn small" data-act="train">카드 학습</button>
            <button class="btn small" data-act="tree">정리에서 보기</button>

@@ -740,13 +740,19 @@ textarea.drop { box-shadow: 0 0 0 3px var(--accent) !important; }
 .onote .md-img:not([data-state]) , .onote .md-img[data-state="ok"] { max-height: 60vh; }
 .rich .md-img { max-height: 50vh; }
 
-/* ---------- 손가락 확대 (.pz) ---------- */
+/* ---------- 읽기 화면 확대 (.pz) — 글자째 커지고 화면 너비 안에서 줄바꿈 ---------- */
 html { touch-action: pan-x pan-y; }
-.pz { overflow-x: auto; overflow-y: hidden; touch-action: pan-x pan-y; overscroll-behavior-x: contain; }
+.pz { touch-action: pan-x pan-y; }
 .pz.pz-both { overflow: auto; }
-.pz.pz-on { cursor: grab; }
-.pz-reset { position: fixed; left: 50%; transform: translateX(-50%); bottom: 24px; z-index: 210; border: 0; border-radius: 999px; padding: 10px 18px; background: rgba(40, 40, 44, .92); color: #fff; font-size: 14px; font-weight: 600; box-shadow: 0 6px 24px rgba(0,0,0,.3); }
-@media (max-width: 860px) { .pz-reset { bottom: calc(76px + env(safe-area-inset-bottom)); } }
+:is(.note-view, .gi-note) > .pz-in, .back-body .md { zoom: var(--read-zoom, 1); overflow-wrap: break-word; }
+/* 보기 모드는 처음부터 크게 */
+:is(.note-view, .gi-note) > .pz-in.md.big { font-size: 18.5px; line-height: 1.8; }
+@media (min-width: 861px) { :is(.note-view, .gi-note) > .pz-in.md.big { font-size: 19.5px; } }
+.zoom-ctl { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 10px; background: var(--bg3); }
+.zoom-ctl button { border: 0; background: none; color: var(--accent); font-weight: 700; font-size: 13.5px; padding: 5px 9px; border-radius: 8px; min-width: 34px; }
+.zoom-ctl button:hover { background: var(--card); }
+.zoom-ctl .zoom-pct { color: var(--muted); font-weight: 600; font-size: 12.5px; min-width: 48px; }
+.gi-actions .zoom-ctl { margin-right: auto; }
 
 /* ---------- 사진 크게 보기 ---------- */
 .lbx { position: fixed; inset: 0; z-index: 300; background: rgba(0, 0, 0, .94); }
