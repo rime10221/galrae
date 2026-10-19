@@ -2,8 +2,9 @@
 // · 버튼: 사진 · 형광펜 · 굵게 · 목록 · 들여/내어쓰기 · 서식 지우기
 // · 글자를 드래그하면 위에 작은 메뉴, 오른쪽 클릭해도 같은 메뉴
 // · '텍스트로' 를 누르면 예전처럼 마크다운(==, -)으로 직접 편집
+// · 사진은 누르면 선택(테두리) → Delete/Backspace 또는 메뉴의 🗑 로 삭제
 import * as Images from './images.js';
-import { esc, composing, lsGet, lsSet } from './util.js';
+import { esc, composing, lsGet, lsSet, toast, openDialog } from './util.js';
 
 const RAW_KEY = 'galrae.v1.rawEditor';
 
@@ -90,7 +91,6 @@ function getBubble() {
   if (bubble) return bubble;
   bubble = document.createElement('div');
   bubble.className = 'ed-bubble';
-  bubble.innerHTML = `<button data-ed="mark"><span class="ed-mark">형광펜</span></button><button data-ed="bold"><b>굵게</b></button><button data-ed="list">• 목록</button><button data-ed="clear">지우기</button>`;
   bubble.hidden = true;
   document.body.append(bubble);
   bubble.addEventListener('mousedown', (e) => e.preventDefault());
@@ -103,6 +103,8 @@ function getBubble() {
   document.addEventListener('selectionchange', () => {
     const ed = active;
     if (!ed) return hideBubble();
+    const img = ed.syncPick();
+    if (img) return showBubble(ed, img.getBoundingClientRect(), null, 'img');
     const s = getSelection();
     if (!s.rangeCount || s.isCollapsed || !ed.rich.contains(s.anchorNode)) return hideBubble();
     showBubble(ed, s.getRangeAt(0).getBoundingClientRect());
@@ -110,9 +112,14 @@ function getBubble() {
   document.addEventListener('scroll', hideBubble, true);
   return bubble;
 }
-function showBubble(ed, rect, at) {
+const BUBBLE = {
+  text: `<button data-ed="mark"><span class="ed-mark">형광펜</span></button><button data-ed="bold"><b>굵게</b></button><button data-ed="list">• 목록</button><button data-ed="clear">지우기</button>`,
+  img: `<button data-ed="img-view">🔍 크게 보기</button><button data-ed="img-del" class="del">🗑 사진 삭제</button>`,
+};
+function showBubble(ed, rect, at, mode = 'text') {
   const b = getBubble();
   b.editor = ed;
+  if (b.dataset.mode !== mode) { b.dataset.mode = mode; b.innerHTML = BUBBLE[mode]; }
   b.hidden = false;
   const w = b.offsetWidth || 240;
   const x = at ? at.x : rect.left + rect.width / 2;
@@ -129,7 +136,8 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
   host.innerHTML = `<div class="ed">${BAR}<div class="rich md big" contenteditable="true" data-ph="${esc(PLACEHOLDER)}" style="--rows:${rows}"></div><textarea class="input raw" rows="${rows}" hidden></textarea></div>`;
   const rich = host.querySelector('.rich');
   const ta = host.querySelector('.raw');
-  const ed = { rich, ta, host, cmd, value: () => current(), focus: () => (raw ? ta : rich).focus() };
+  const ed = { rich, ta, host, cmd, syncPick, value: () => current(), focus: () => (raw ? ta : rich).focus() };
+  let picked = null; // 선택한 사진
   let last = md || '';
   const setRaw = (v) => {
     raw = v;
@@ -151,8 +159,13 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
   getBubble();
 
   rich.addEventListener('focus', () => { active = ed; });
-  rich.addEventListener('blur', () => { setTimeout(() => { if (document.activeElement !== rich) { if (active === ed) active = null; hideBubble(); } }, 150); });
-  rich.addEventListener('input', () => { normalize(); changed(); });
+  rich.addEventListener('blur', () => { setTimeout(() => { if (document.activeElement !== rich) { if (active === ed) active = null; unpick(); hideBubble(); } }, 150); });
+  rich.addEventListener('input', () => { if (picked && !picked.isConnected) picked = null; normalize(); changed(); });
+
+  // 사진을 누르면 선택 (커서가 엉뚱한 데로 가지 않게 mousedown 은 막는다), 더블클릭은 크게 보기
+  rich.addEventListener('mousedown', (e) => { if (e.target.closest('.md-img')) e.preventDefault(); });
+  rich.addEventListener('click', (e) => { const img = e.target.closest('.md-img'); if (img) { e.preventDefault(); pick(img); } });
+  rich.addEventListener('dblclick', (e) => { if (e.target.closest('.md-img')) { e.preventDefault(); cmd('img-view'); } });
   ta.addEventListener('input', changed);
 
   // 오른쪽 클릭 = 서식 메뉴 (글자를 선택했을 때)
@@ -204,6 +217,27 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
     if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); cmd('bold'); return; }
     if (mod && e.key.toLowerCase() === 'h') { e.preventDefault(); cmd('mark'); return; }
     if (e.key === 'Tab') { e.preventDefault(); cmd(e.shiftKey ? 'outdent' : 'indent'); return; }
+    // 선택한 사진: Delete/Backspace 삭제 · Enter 아래에 새 줄 · 방향키/Esc 선택 해제
+    if (syncPick()) {
+      const img = picked;
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); return removeImg(img); }
+      if (e.key === 'Enter') { e.preventDefault(); return lineAfter(img, true); }
+      if (['Escape', 'ArrowDown', 'ArrowRight'].includes(e.key)) { e.preventDefault(); return lineAfter(img, false); }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); unpick(); return caretAt((r) => r.setStartBefore(img)); }
+      if (mod || e.key.length > 1) return;
+      // 글자를 치면 사진은 두고 아래 줄에 쓴다
+      return lineAfter(img, false);
+    }
+    // 사진 바로 뒤에서 Backspace / 바로 앞에서 Delete → 먼저 사진을 선택 (한 번 더 누르면 삭제)
+    if ((e.key === 'Backspace' || e.key === 'Delete') && getSelection().isCollapsed) {
+      const img = imgBeside(e.key === 'Backspace' ? -1 : 1);
+      if (img) {
+        e.preventDefault();
+        const cur = block();
+        if (cur && cur !== blockOf(img) && !cur.textContent.trim() && !cur.querySelector('img')) { cur.remove(); changed(); }
+        return pick(img);
+      }
+    }
     const blk = block();
     if (!blk) return;
     // 빈 목록 줄에서 Enter → 목록 끝내기, 줄 맨 앞 Backspace → 글머리 먼저 지우기
@@ -241,6 +275,126 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
       } else if (c.nodeType === 1 && c.tagName === 'BR' && rich.childNodes.length === 1) c.remove();
     }
     for (const d of rich.querySelectorAll(':scope > div')) if (!d.dataset.lv) d.dataset.lv = '0';
+  }
+
+  // ---------- 사진 선택 ----------
+  function pick(img) {
+    if (!rich.contains(img)) return;
+    if (document.activeElement !== rich) rich.focus({ preventScroll: true });
+    active = ed;
+    if (picked && picked !== img) picked.classList.remove('picked');
+    picked = img;
+    img.classList.add('picked');
+    const r = document.createRange();
+    r.selectNode(img);
+    const s = getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+    showBubble(ed, img.getBoundingClientRect(), null, 'img');
+  }
+  function unpick() {
+    if (!picked) return;
+    picked.classList.remove('picked');
+    picked = null;
+  }
+  // 선택 영역이 아직 그 사진만 감싸고 있는지 (다른 곳을 누르면 선택 해제)
+  function syncPick() {
+    if (!picked) return null;
+    const s = getSelection();
+    const r = s.rangeCount ? s.getRangeAt(0) : null;
+    let still = picked.isConnected && r && !r.collapsed && r.intersectsNode(picked);
+    if (still) { const f = r.cloneContents(); still = f.querySelectorAll('img').length === 1 && !f.textContent.trim(); }
+    if (!still) unpick();
+    return picked;
+  }
+  function blockOf(n) {
+    while (n && n.parentNode !== rich) n = n.parentNode;
+    return n;
+  }
+  function caretAt(fn) {
+    const r = document.createRange();
+    fn(r);
+    r.collapse(true);
+    const s = getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  }
+  // 커서 바로 앞(-1)/뒤(1)에 사진이 있으면 그 사진 (같은 줄, 또는 빈 자리 너머 앞/뒤 줄)
+  function imgBeside(dir) {
+    const s = getSelection();
+    if (!s.rangeCount || !rich.contains(s.anchorNode)) return null;
+    const r = s.getRangeAt(0);
+    const blk = blockOf(r.startContainer);
+    if (!blk || blk.nodeType !== 1) return null;
+    // 커서와 줄 끝 사이 (dir 쪽)
+    const side = document.createRange();
+    side.selectNodeContents(blk);
+    if (dir < 0) side.setEnd(r.startContainer, r.startOffset); else side.setStart(r.startContainer, r.startOffset);
+    const edgeImg = (range) => {
+      const f = range.cloneContents();
+      const imgs = f.querySelectorAll('img');
+      if (!imgs.length) return undefined; // 사진 없음
+      // 사진과 커서 사이에 글자가 있으면 해당 없음
+      const last = imgs[dir < 0 ? imgs.length - 1 : 0];
+      const between = document.createRange();
+      between.selectNodeContents(f);
+      if (dir < 0) between.setStartAfter(last); else between.setEndBefore(last);
+      return between.toString().trim() ? null : imgs.length;
+    };
+    const here = edgeImg(side);
+    if (here === null) return null;
+    if (here) {
+      const all = [...blk.querySelectorAll('.md-img')].filter((im) => side.intersectsNode(im));
+      return all[dir < 0 ? all.length - 1 : 0] || null;
+    }
+    if (side.toString().trim()) return null;
+    // 줄 맨 앞/끝 → 앞/뒤 줄 끝/처음의 사진
+    const nb = dir < 0 ? blk.previousElementSibling : blk.nextElementSibling;
+    if (!nb) return null;
+    const whole = document.createRange();
+    whole.selectNodeContents(nb);
+    if (!edgeImg(whole)) return null;
+    const imgs = nb.querySelectorAll('.md-img');
+    return imgs[dir < 0 ? imgs.length - 1 : 0] || null;
+  }
+  // 사진 아래 줄로 커서 (아래 줄이 없거나 fresh 면 빈 줄을 만든다)
+  function lineAfter(img, fresh) {
+    unpick();
+    hideBubble();
+    const b = blockOf(img);
+    let next = b.nextElementSibling;
+    if (fresh || !next) {
+      next = document.createElement('div');
+      next.dataset.lv = b.dataset?.lv || '0';
+      next.innerHTML = '<br>';
+      b.after(next);
+      changed();
+    }
+    placeCaret(next, false);
+  }
+  function removeImg(img) {
+    const b = blockOf(img);
+    // 사진만 있는 줄이면 줄째로 지운다
+    const alone = b && b !== img && !b.textContent.trim() && b.querySelectorAll('img').length === 1;
+    const target = alone ? b : img;
+    const parent = target.parentNode, anchor = target.nextSibling;
+    const next = alone ? b.nextElementSibling : null, prev = alone ? b.previousElementSibling : null;
+    const spot = document.createRange();
+    spot.setStartBefore(target);
+    spot.collapse(true);
+    unpick();
+    hideBubble();
+    target.remove();
+    if (!rich.children.length) rich.innerHTML = '<div data-lv="0"><br></div>';
+    if (!alone) caretAt((r) => r.setStart(spot.startContainer, spot.startOffset));
+    else if (next) placeCaret(next, false);
+    else placeCaret(prev || rich.firstElementChild, true);
+    changed();
+    toast('사진을 지웠어요', { action: '되돌리기', onAction: () => {
+      if (!parent.isConnected) return toast('편집기를 닫아서 되돌릴 수 없어요');
+      parent.insertBefore(target, anchor?.parentNode === parent ? anchor : null);
+      changed();
+    } });
   }
 
   function block() {
@@ -310,6 +464,11 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
   }
 
   function cmd(name) {
+    if (name === 'img-del') { if (picked) removeImg(picked); return; }
+    if (name === 'img-view') {
+      if (picked?.src) openDialog(`<div class="lightbox" data-close=""><img src="${picked.src}" alt=""></div>`, { cls: 'lb' });
+      return;
+    }
     if (raw) {
       // 텍스트 모드에서는 기호를 넣어 준다
       const { selectionStart: s, selectionEnd: e2, value: v } = ta;

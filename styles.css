@@ -683,3 +683,19 @@ textarea.drop { box-shadow: 0 0 0 3px var(--accent) !important; }
 .oacts { display: none; opacity: 1; }
 .orow:hover .oacts, .orow.sel .oacts { display: flex; }
 @media (max-width: 860px) { .orow:hover .oacts { display: none; } .orow.sel .oacts { display: flex; } }
+
+/* 끌어서 순서 바꾸기 */
+.oacts button.grip { cursor: grab; touch-action: none; color: var(--muted); font-size: 15px; }
+.oacts button.grip:hover { background: var(--bg3); color: var(--accent); }
+.is-dragging, .is-dragging * { cursor: grabbing !important; user-select: none; }
+.orow.dragging { opacity: .45; }
+.orow.drag-kid { opacity: .35; }
+.orow.drop-in { background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
+.drop-line { position: fixed; z-index: 150; height: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.drop-line::before { content: ''; position: absolute; left: -5px; top: -3.5px; width: 7px; height: 7px; border-radius: 50%; border: 2px solid var(--accent); background: var(--card); }
+
+/* 외울 것 편집기: 사진 선택 */
+.rich .md-img { cursor: pointer; }
+.rich .md-img.picked { outline: 3px solid var(--accent); outline-offset: 2px; }
+.rich .md-img::selection { background: transparent; }
+.ed-bubble button.del { color: #ff8a80; }

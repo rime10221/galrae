@@ -159,8 +159,57 @@ const H = `
     r2.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
     await sleep(800);
     out.imgSaved = /!\[\]\(img:i[a-z0-9]+\)/.test(S.node(gdm).note) && S.imageList().length === 1;
+    // 사진 선택 → 삭제 (사진 뒤 줄에서 Backspace 두 번, 메뉴 🗑)
+    {
+      const rich = $('.d-note-host .rich');
+      const img = rich.querySelector('.md-img');
+      click(img); await sleep(50);
+      const pickedOk = img.classList.contains('picked') && !$('.ed-bubble').hidden && !!$('.ed-bubble [data-ed="img-del"]');
+      key(rich, 'Escape'); await sleep(30);
+      const unpicked = !img.classList.contains('picked');
+      // 사진 아래 빈 줄에서 Backspace → 사진 선택, 한 번 더 → 삭제
+      key(rich, 'Backspace'); await sleep(30);
+      const bsPick = img.classList.contains('picked');
+      key(rich, 'Backspace'); await sleep(800);
+      out.imgDelete = pickedOk && unpicked && bsPick && !rich.querySelector('.md-img') && !/img:/.test(S.node(gdm).note);
+      // 되돌리기 → 다시 생김
+      click([...document.querySelectorAll('.toast button')].pop()); await sleep(800);
+      out.imgUndo = !!rich.querySelector('.md-img') && /img:/.test(S.node(gdm).note);
+      // 메뉴 버튼으로 삭제 후 다시 되돌리기
+      click(rich.querySelector('.md-img')); await sleep(50);
+      $('.ed-bubble [data-ed="img-del"]').dispatchEvent(new MouseEvent('click', { bubbles: true })); await sleep(800);
+      out.imgMenuDel = !rich.querySelector('.md-img') && !/img:/.test(S.node(gdm).note);
+      click([...document.querySelectorAll('.toast button')].pop()); await sleep(800);
+    }
     click($('.detail [data-act="preview"]')); await sleep(300);
     out.imgShown = $('.note-view img.md-img')?.dataset.state === 'ok';
+    // 끌어서 순서 바꾸기: 첫 과목의 첫 하위를 두 번째 뒤로
+    {
+      await go('#tree');
+      const kids = S.children(S.roots()[0]);
+      const [a, b] = kids;
+      const ptr = (t, el, y) => (el || window).dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, clientY: y, button: 0, pointerId: 1 }));
+      click($(`.orow[data-id="${a}"] .otext`)); await sleep(30);
+      const rb = $(`.orow[data-id="${b}"]`).getBoundingClientRect();
+      // b 가 펼쳐져 있으면 '아래' 는 b 의 첫 하위가 되므로 접어 둔다
+      if (S.children(b).length && $(`.orow[data-id="${b}"] .caret.open`)) { click($(`.orow[data-id="${b}"] [data-act="toggle"]`)); await sleep(30); }
+      const rb2 = $(`.orow[data-id="${b}"]`).getBoundingClientRect();
+      const grip = $(`.orow[data-id="${a}"] [data-act="grip"]`);
+      ptr('pointerdown', grip, grip.getBoundingClientRect().top + 5);
+      ptr('pointermove', null, rb2.bottom - 3); await sleep(30);
+      const line = !!$('.drop-line') && !$('.drop-line').hidden;
+      ptr('pointerup', null, rb2.bottom - 3); await sleep(50);
+      const k2 = S.children(S.roots()[0]);
+      out.dragAfter = line && k2[0] === b && k2[1] === a && !$('.drop-line') && rb.height > 0;
+      // 가운데에 놓으면 하위로
+      const ra = $(`.orow[data-id="${a}"]`);
+      const tb = $(`.orow[data-id="${b}"]`).getBoundingClientRect();
+      ptr('pointerdown', ra.querySelector('[data-act="grip"]') || (click(ra.querySelector('.otext')), ra.querySelector('[data-act="grip"]')), 0);
+      ptr('pointermove', null, tb.top + tb.height / 2); await sleep(30);
+      ptr('pointerup', null, tb.top + tb.height / 2); await sleep(50);
+      out.dragInside = S.parentOf(a) === b;
+      S.moveNode(a, S.roots()[0], 0);
+    }
     // 카드 학습: 세트(갈래) 고르기 → 레벨 → 앞면/뒷면 → 몰라요/알아요
     const ob = S.roots()[0];
     await go('#train');
@@ -239,11 +288,19 @@ const H = `
     const shown = g.map.has(gbs);
     g.select(inf, true); await sleep(100);
     out.mapToggle = hiddenBefore && shown && !g.map.has(gbs);
-    // 뒤로 가기: 펼치기 전 상태로 (마인드맵을 나가지 않음)
+    // 뒤로 가기: 선택한 갈래의 상위 단원으로 (마인드맵을 나가지 않음), 맨 위 단원이면 나간다
     g.select(inf, true); await sleep(100);
     const openNow = g.map.has(gbs);
+    const chain = S.path(inf).map((n) => n.id).reverse();
+    const ups = [];
+    for (let i = 1; i < chain.length; i++) {
+      history.back(); await sleep(300);
+      ups.push(g.sel === chain[i] && location.hash.startsWith('#graph') && !$('#view-graph').hidden);
+    }
+    const collapsedChild = !g.map.has(gbs);
     history.back(); await sleep(300);
-    out.mapBack = openNow && !g.map.has(gbs) && location.hash.startsWith('#graph') && !$('#view-graph').hidden;    click($('#gLayout [data-v="force"]')); await sleep(200);
+    out.mapBack = openNow && collapsedChild && ups.length >= 1 && ups.every(Boolean) && !location.hash.startsWith('#graph');
+    await go('#graph'); await sleep(200);    click($('#gLayout [data-v="force"]')); await sleep(200);
     click($('#gLayout [data-v="tree"]')); await sleep(200);
     key(document.body, 'k', { ctrlKey: true }); await sleep(30);
     const pin = $('dialog.palette input');
@@ -278,6 +335,11 @@ const H = `
   ok('정리: 외울 것 토글(기본 접힘·모두 펼치기·하나 접기)', r.inlineNotes);
   ok('사진: 붙여넣기 저장', r.imgSaved);
   ok('사진: 외울 것에 표시', r.imgShown);
+  ok('사진: 눌러서 선택 · Backspace 로 삭제', r.imgDelete);
+  ok('사진: 삭제 되돌리기', r.imgUndo);
+  ok('사진: 메뉴의 사진 삭제', r.imgMenuDel);
+  ok('정리: ⠿ 끌어서 순서 바꾸기', r.dragAfter);
+  ok('정리: 끌어서 가운데에 놓으면 하위로', r.dragInside);
   ok('카드: 세트 목록', r.library);
   ok('카드: 세트 기본 레벨(바로 아래) + 카드 목록', r.defaultLevel);
   ok('카드: 레벨별 장수', r.deckCount);
@@ -292,7 +354,7 @@ const H = `
   ok('마인드맵: 노트 카드', r.noteCard);
   ok('마인드맵: 노트 카드에서 편집', r.graphEdit);
   ok('마인드맵: 누르면 하위 펼치기/다시 누르면 접기', r.mapToggle);
-  ok('마인드맵: 뒤로 가기 = 바로 전 상태', r.mapBack);
+  ok('마인드맵: 뒤로 가기 = 상위 단원, 맨 위면 나가기', r.mapBack);
   ok('마인드맵: 하위 갈래는 항상 오른쪽 열', r.graph.colsOk);
   ok('마인드맵: 같은 깊이는 같은 열', r.graph.sameDepthSameX);
   ok('마인드맵: 형제는 순서대로 위→아래', r.graph.rowsOk);

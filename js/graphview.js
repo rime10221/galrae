@@ -95,36 +95,53 @@ export function show(id) {
   if (dirty || !g.nodes.length) refresh(true);
   if (id && S.node(id)) {
     if (scope && S.rootOf(id) !== scope) { scope = ''; refresh(true); }
-    setTimeout(() => { focus(id, { record: false }); remember(true); }, 60);
+    setTimeout(() => { focus(id, { record: false }); remember(); }, 60);
   } else {
     if (!g.sel) setTimeout(() => g.fit(0), 30);
-    remember(true);
+    remember();
   }
 }
 
 export function themeChanged() { if (g) { g.readColors(); g.kick(0); } }
 
-// ---------- 뒤로 가기 = 마인드맵의 바로 전 상태 ----------
-// 누를 때마다 (펼친 갈래 · 선택한 갈래)를 브라우저 기록에 쌓아 두고,
-// 휴대폰 뒤로 가기를 누르면 한 단계씩 되돌린다. 맨 처음 상태에서 한 번 더 누르면 마인드맵을 나간다.
-const snapshot = () => ({ open: [...open], sel: g.sel || null });
-function remember(replace = false) {
-  const st = { ...(history.state || {}), gmap: snapshot() };
-  if (replace) history.replaceState(st, '');
-  else history.pushState(st, '');
+// ---------- 뒤로 가기 = 선택한 갈래의 상위 단원으로 ----------
+// 상위가 있는 갈래를 선택하면 브라우저 기록에 한 칸(guard)을 깔아 둔다.
+// 휴대폰 뒤로 가기가 그 칸을 빼면 상위 단원으로 올라가고(필요하면 다시 한 칸),
+// 맨 위 단원(상위 없음)이거나 선택이 없으면 마인드맵을 나가 이전 화면으로 간다.
+let armed = false; // 지금 기록의 맨 위가 우리 guard 칸인지
+function remember() {
+  if (!el || el.hidden || !location.hash.startsWith('#graph')) return;
+  if (!g.sel || !S.parentOf(g.sel)) return;
+  if (!history.state?.gguard) history.pushState({ gguard: 1 }, '');
+  armed = true;
 }
+let lastHash = location.hash;
+window.addEventListener('hashchange', () => { armed = !!history.state?.gguard; lastHash = location.hash; });
 window.addEventListener('popstate', (e) => {
-  const s = e.state?.gmap;
-  if (!s || !el || el.hidden) return;
+  // 마인드맵 기록이 연달아 있으면(#graph/… → #graph, 예전 방문의 guard 칸) 건너뛰고 다른 화면까지 나간다
+  const fromMap = lastHash.startsWith('#graph'), sameHash = lastHash === location.hash;
+  lastHash = location.hash;
+  if (e.state?.gguard) {
+    if (fromMap && !sameHash) { armed = false; return history.back(); }
+    armed = true;
+    return;
+  }
+  if (!armed) { if (fromMap && location.hash.startsWith('#graph')) history.back(); return; }
+  armed = false;
+  if (!el || el.hidden || !location.hash.startsWith('#graph')) return;
+  const cur = g.sel && S.node(g.sel) ? g.sel : null;
+  const up = cur ? S.parentOf(cur) : null;
+  if (!up) return history.back();
   flushEdit();
   editing = false;
-  open = new Set(s.open);
+  open.delete(cur);
   saveOpen();
-  lastSel = s.sel;
-  g.select(s.sel);
+  lastSel = up;
+  g.select(up);
   refresh();
-  showInfo(s.sel);
-  if (s.sel && g.map.has(s.sel)) g.centerOn(s.sel, Math.max(g.view.k, 0.9), infoOffset());
+  showInfo(up);
+  if (g.map.has(up)) g.centerOn(up, Math.max(g.view.k, 0.9), infoOffset());
+  remember();
 });
 
 // 누르면: 접혀 있으면 바로 아래 레벨 펼치기, 이미 펼친 걸 다시 누르면 접기

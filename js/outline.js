@@ -1,6 +1,7 @@
 ﻿// 정리(트리) + 상세 패널
 // 한 번 누르면 선택, ✎ · 더블클릭 · F2 로 이름 바꾸기, ＋ 로 하위 추가
 // 선택한 상태에서: ↑↓ 이동 · ←→ 접기/펼치기 · Enter/F2 이름 · Tab 같은 레벨 다음(없으면 새 항목) · Alt+←→ 내어/들여쓰기 · Alt+↑↓ 순서 · Delete 삭제
+// ⠿ 를 끌어서 순서 바꾸기 (줄 위/아래에 놓으면 그 앞/뒤, 가운데에 놓으면 그 갈래의 하위로)
 import * as S from './store.js';
 import * as Ed from './editor.js';
 import { $, $$, esc, debounce, renderMd, firstLine, lsGet, lsSet, composing, toast, confirmDlg, openDialog } from './util.js';
@@ -40,7 +41,7 @@ export function init(root, hooks) {
         </div>
       </div>
       <div class="olist" id="olist" tabindex="0"></div>
-      <p class="tree-help muted small">누르면 선택 · ✎/더블클릭/F2 이름 바꾸기 · ＋ 하위 추가 · 🗑 삭제 · ↑↓ 이동 · ←→ 접기/펼치기 · Tab 같은 레벨 다음 항목(마지막이면 새 항목) · Alt+←→ 내어/들여쓰기 · Alt+↑↓ 순서</p>
+      <p class="tree-help muted small">누르면 선택 · ⠿ 끌어서 순서 바꾸기 · ✎/더블클릭/F2 이름 바꾸기 · ＋ 하위 추가 · 🗑 삭제 · ↑↓ 이동 · ←→ 접기/펼치기 · Tab 같은 레벨 다음 항목(마지막이면 새 항목) · Alt+←→ 내어/들여쓰기 · Alt+↑↓ 순서</p>
     </div>
     <aside class="detail" id="detail"></aside>
     <div class="otools" id="otools">
@@ -57,6 +58,7 @@ export function init(root, hooks) {
     if (row && !e.target.closest('button,input')) startEdit(row.dataset.id);
   });
   list.addEventListener('keydown', onKey);
+  list.addEventListener('pointerdown', onGripDown);
   // 다른 곳을 누르면 이름 저장 (다시 그리면서 사라진 입력칸의 blur 는 무시)
   list.addEventListener('focusout', (e) => {
     if (!e.target.matches('.otitle')) return;
@@ -143,7 +145,7 @@ function renderList() {
         ? `<input class="otitle" value="${esc(n.title)}" placeholder="제목" enterkeyhint="done" autocomplete="off">`
         : `<span class="otext ${n.title ? '' : 'empty'}">${esc(n.title || '제목 없음')}</span>`}
       <span class="ometa">${meta}</span>
-      ${editing ? '' : `<span class="oacts"><button data-act="add-child" tabindex="-1" title="하위 항목 추가">＋</button><button data-act="rename" tabindex="-1" title="이름 바꾸기 (F2 · 더블클릭)">✎</button><button data-act="delete" class="del" tabindex="-1" title="삭제 (Delete)">🗑</button></span>`}
+      ${editing ? '' : `<span class="oacts"><button data-act="grip" class="grip" tabindex="-1" title="끌어서 순서 바꾸기 (Alt+↑↓)">⠿</button><button data-act="add-child" tabindex="-1" title="하위 항목 추가">＋</button><button data-act="rename" tabindex="-1" title="이름 바꾸기 (F2 · 더블클릭)">✎</button><button data-act="delete" class="del" tabindex="-1" title="삭제 (Delete)">🗑</button></span>`}
     </div>`);
     if (notesOpen.has(id) && n.note?.trim()) rows.push(`<div class="onote md" data-note="${id}" style="--d:${d}">${renderMd(n.note)}</div>`);
     if (!closed) for (const k of kids) walk(k, d + 1);
@@ -285,6 +287,7 @@ function onListClick(e) {
     const id = row?.dataset.id;
     if (!id) return;
     switch (b.dataset.act) {
+      case 'grip': return;
       case 'toggle': return toggle(id);
       case 'note': notesOpen.has(id) ? notesOpen.delete(id) : notesOpen.add(id); saveNotesOpen(); return renderList();
       case 'open': return openDetail(id);
@@ -299,6 +302,87 @@ function onListClick(e) {
   // 휴대폰: 이미 선택한 줄을 한 번 더 누르면 외울 것 열기
   if (narrow() && sel === id) return openDetail(id);
   select(id);
+}
+
+// ---------- 끌어서 순서 바꾸기 ----------
+function scrollParent(n) {
+  for (; n && n !== document.body; n = n.parentElement) {
+    const oy = getComputedStyle(n).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight) return n;
+  }
+  return document.scrollingElement;
+}
+
+function onGripDown(e) {
+  const g = e.target.closest('[data-act="grip"]');
+  if (!g || e.button > 0) return;
+  e.preventDefault();
+  const list = $('#olist', el);
+  const id = g.closest('.orow').dataset.id;
+  if (editingId) finishEdit(true);
+  const own = new Set(S.descendants(id));
+  const sc = scrollParent(list);
+  const line = document.createElement('div');
+  line.className = 'drop-line';
+  line.hidden = true;
+  document.body.append(line);
+  rowOf(id)?.classList.add('dragging');
+  for (const k of own) if (k !== id) rowOf(k)?.classList.add('drag-kid');
+  el.classList.add('is-dragging');
+  let drop = null, lastY = e.clientY, timer = 0;
+  const mark = () => {
+    $$('.orow.drop-in', el).forEach((r) => r.classList.remove('drop-in'));
+    const rows = $$('.orow', el).filter((r) => !own.has(r.dataset.id));
+    drop = null;
+    line.hidden = true;
+    if (!rows.length) return;
+    // 손가락 아래 줄 (위·아래로 벗어나면 맨 처음/끝 줄)
+    let t = rows.find((r) => { const b = r.getBoundingClientRect(); return lastY < b.bottom; }) || rows[rows.length - 1];
+    const b = t.getBoundingClientRect();
+    const f = (lastY - b.top) / b.height;
+    const pos = f < 0.3 ? 'before' : f > 0.7 ? 'after' : 'inside';
+    drop = { target: t.dataset.id, pos };
+    if (pos === 'inside') { t.classList.add('drop-in'); return; }
+    const d = +t.style.getPropertyValue('--d') + (pos === 'after' && S.children(drop.target).length && !collapsed.has(drop.target) ? 1 : 0);
+    const lb = list.getBoundingClientRect();
+    const left = lb.left + d * (narrow() ? 16 : 22) + 30;
+    line.hidden = false;
+    line.style.left = left + 'px';
+    line.style.width = Math.max(40, lb.right - left - 8) + 'px';
+    line.style.top = (pos === 'before' ? b.top : b.bottom) - 1.5 + 'px';
+  };
+  // 위·아래 끝에 가까우면 저절로 스크롤
+  const tick = () => {
+    const box = sc === document.scrollingElement ? { top: 0, bottom: innerHeight } : sc.getBoundingClientRect();
+    const v = lastY < box.top + 60 ? -1 : lastY > box.bottom - 120 ? 1 : 0;
+    if (v) { sc.scrollBy(0, v * 12); mark(); }
+    timer = requestAnimationFrame(tick);
+  };
+  const move = (ev) => { lastY = ev.clientY; mark(); };
+  const end = (ev) => {
+    cancelAnimationFrame(timer);
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', end);
+    removeEventListener('pointercancel', end);
+    line.remove();
+    el.classList.remove('is-dragging');
+    $$('.orow.dragging,.orow.drag-kid,.orow.drop-in', el).forEach((r) => r.classList.remove('dragging', 'drag-kid', 'drop-in'));
+    if (ev.type === 'pointercancel' || !drop || drop.target === id) return;
+    const { target, pos } = drop;
+    const p = S.parentOf(target);
+    const sibs = S.children(p).filter((x) => x !== id);
+    sel = id;
+    structural(() => {
+      if (pos === 'inside') { collapsed.delete(target); saveCollapsed(); return S.moveNode(id, target, S.children(target).filter((x) => x !== id).length); }
+      if (pos === 'after' && S.children(target).length && !collapsed.has(target)) return S.moveNode(id, target, 0);
+      return S.moveNode(id, p, sibs.indexOf(target) + (pos === 'after' ? 1 : 0));
+    }, id);
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', end);
+  addEventListener('pointercancel', end);
+  timer = requestAnimationFrame(tick);
+  mark();
 }
 
 function onKey(e) {
