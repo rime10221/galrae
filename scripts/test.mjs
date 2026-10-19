@@ -44,6 +44,11 @@ const H = `
   window.click = (el) => { if (!el) throw new Error('no element'); el.dispatchEvent(new MouseEvent('click', { bubbles: true })); };
   window.key = (el, k, o = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...o }));
   window.go = async (h) => { location.hash = h; await sleep(120); };
+  // 접혀 있는 외울 것을 펼치고 편집 모드로
+  window.openNote = async () => {
+    const t = document.querySelector('.detail [data-act="note-open"]'); if (t) { click(t); await sleep(30); }
+    if (!document.querySelector('.d-note-host .rich')) { click(document.querySelector('.detail [data-act="edit"]')); await sleep(20); }
+  };
 `;
 
 // ---------- 기능 테스트 ----------
@@ -95,7 +100,10 @@ const H = `
     const gdm = S.findByTitle('임신과 당뇨병');
     const endOf = (el) => { el.focus(); const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
     await go('#tree/' + gdm);
-    if (!$('.d-note-host .rich')) { click($('.detail [data-act="edit"]')); await sleep(20); }
+    const tg = $('.detail .note-toggle');
+    out.noteFolded = !!tg && tg.classList.contains('has') && !$('.detail .note-view') && !$('.detail .rich') && /6줄/.test(tg.textContent);
+    await openNote();
+    out.noteUnfold = !!$('.d-note-host .rich') && !!$('.detail [data-act="note-close"]');
     // 보이는 대로 편집기: 원래 마크다운이 그대로 되살아나는지
     const rich = $('.d-note-host .rich');
     out.richRoundtrip = rich.querySelectorAll('mark').length >= 5 && rich.querySelectorAll('[data-li="1"]').length === 6;
@@ -128,7 +136,7 @@ const H = `
     out.inlineNotes = closedFirst && allOpen && !$(`.onote[data-note="${gdm}"]`);
     // 사진 붙여넣기 → IndexedDB 저장 + 메모에 참조 + 미리보기에서 표시
     await go('#tree/' + gdm);
-    if (!$('.d-note-host .rich')) { click($('.detail [data-act="edit"]')); await sleep(20); }
+    await openNote();
     const cv = document.createElement('canvas'); cv.width = 40; cv.height = 30;
     cv.getContext('2d').fillRect(0, 0, 40, 30);
     const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
@@ -245,6 +253,8 @@ const H = `
   ok('트리: Tab 들여쓰기', r.tabIndent);
   ok('트리: Shift+Tab 내어쓰기', r.shiftTab);
   ok('정리: Delete 삭제', r.backspaceDel);
+  ok('정리: 외울 것은 처음엔 버튼으로 접혀 있음(줄 수 표시)', r.noteFolded);
+  ok('정리: 버튼 누르면 크게 펼쳐짐', r.noteUnfold);
   ok('편집기: 기존 내용이 보이는 대로(형광펜·목록)', r.richRoundtrip);
   ok('편집기: 입력 저장', r.noteSaved);
   ok('편집기: 선택 후 형광펜 버튼', r.markBtn);
@@ -288,7 +298,7 @@ if (SHOTS) {
     tree: async (S) => go('#tree/' + S.findByTitle('임신과 당뇨병')),
     treeEdit: async (S) => {
       await go('#tree/' + S.findByTitle('임신과 당뇨병'));
-      const e = $('.detail [data-act="edit"]'); if (e && !$('.d-note-host')) click(e);
+      await openNote();
       await sleep(100);
       const r = $('.d-note-host .rich'); const t = r.children[1].firstChild.nextSibling || r.children[1].lastChild;
       r.focus(); const rg = document.createRange(); rg.selectNodeContents(r.children[0]); getSelection().removeAllRanges(); getSelection().addRange(rg);

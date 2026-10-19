@@ -3,7 +3,7 @@
 // 선택한 상태에서: ↑↓ 이동 · ←→ 접기/펼치기 · Enter/F2 이름 · Tab/Shift+Tab 들여/내어쓰기 · Alt+↑↓ 순서 · Delete 삭제
 import * as S from './store.js';
 import * as Ed from './editor.js';
-import { $, $$, esc, debounce, renderMd, lsGet, lsSet, composing, toast, confirmDlg, openDialog } from './util.js';
+import { $, $$, esc, debounce, renderMd, firstLine, lsGet, lsSet, composing, toast, confirmDlg, openDialog } from './util.js';
 
 let el, api;
 let sel = null;          // 선택한(상세 패널에 열린) 노드
@@ -12,6 +12,9 @@ let editingNew = false;  // 방금 만든 노드인지 (비워 두면 지운다)
 let filter = '';
 let noteEd = null; // 상세 패널의 외울 것 편집기
 let preview = lsGet('galrae.v1.notePreview', true);
+// 상세의 외울 것 칸: 접으면 버튼 한 줄, 펼치면 크게 (기본은 접힘)
+let noteOpen = lsGet('galrae.v1.noteOpen', false);
+const setNoteOpen = (v) => { noteOpen = v; lsSet('galrae.v1.noteOpen', v); };
 // 트리에서 외울 것을 줄 아래에 펼쳐 보기 (갈래마다 토글, 기본은 접힘)
 let notesOpen = new Set(lsGet('galrae.v1.notesOpen', []));
 const saveNotesOpen = () => lsSet('galrae.v1.notesOpen', [...notesOpen]);
@@ -404,8 +407,9 @@ function renderDetail() {
     </div>
     <input class="d-title input" value="${esc(n.title)}" placeholder="제목">
     <div class="d-sub muted small">Lv${p.length} · ${esc(S.levelName(p.length))} · 하위 ${kids.length} · 전체 하위 ${S.descendants(sel).length - 1}</div>
-    <div class="d-field note-main">
+    ${!noteOpen ? noteButton(n) : `<div class="d-field note-main">
       <div class="d-label note-head"><span>외울 것</span>
+        <button class="btn ghost small" data-act="note-close" title="외울 것 접기">접기 ▴</button>
         <span class="save-state" id="saveState">${preview ? '' : '자동 저장돼요'}</span>
         <div class="seg tiny"><button class="${preview ? '' : 'on'}" data-act="edit">편집</button><button class="${preview ? 'on' : ''}" data-act="preview">보기</button></div>
         <button class="icon-btn small" data-act="full" title="크게 보기">${$('#detail', el).classList.contains('note-full') ? '✕' : '⤢'}</button>
@@ -413,7 +417,7 @@ function renderDetail() {
       ${preview
         ? `<div class="md big note-view" data-act="edit">${renderMd(n.note) || '<span class="muted">비어 있어요. 눌러서 외울 것을 적어 보세요 (사진도 넣을 수 있어요)</span>'}</div>`
         : `<div class="d-note-host"></div>`}
-    </div>
+    </div>`}
     <div class="d-field">
       <div class="d-label"><span>하위 갈래 ${kids.length}</span><button class="link" data-act="add-child">+ 하위 추가</button></div>
       <div class="chips">${kids.map((k) => `<button class="chip" data-sel="${k}">${esc(S.node(k).title || '제목 없음')}</button>`).join('') || '<span class="muted small">없음</span>'}</div>
@@ -431,6 +435,18 @@ function renderDetail() {
   const host = $('.d-note-host', det);
   const id = sel;
   noteEd = host ? Ed.mount(host, n.note || '', (v) => { saveState('dirty'); saveNote(id, v); }, { rows: 16, onSave: () => saveNow(true) }) : null;
+}
+
+// 접힌 외울 것: 버튼 한 줄 (내용이 있는지 한눈에)
+function noteButton(n) {
+  const note = (n.note || '').trim();
+  const lines = note ? note.split('\n').filter((l) => l.trim() && !/^\s*!\[[^\]]*\]\([^)]*\)\s*$/.test(l)).length : 0;
+  const pics = (note.match(/!\[[^\]]*\]\([^)]*\)/g) || []).length;
+  const info = note ? [lines ? `${lines}줄` : '', pics ? `사진 ${pics}` : ''].filter(Boolean).join(' · ') : '아직 없어요';
+  return `<button class="note-toggle ${note ? 'has' : ''}" data-act="note-open" title="외울 것 펼치기">
+    <span class="nt-ic">${note ? '📝' : '＋'}</span>
+    <span class="nt-main"><b>${note ? '외울 것' : '외울 것 추가'}</b><small>${esc(info)}${note ? ` — ${esc(firstLine(note).slice(0, 40))}` : ''}</small></span>
+    <em>펼치기 ▾</em></button>`;
 }
 
 const saveNote = debounce((id, v) => { S.as('detail', () => S.updateNode(id, { note: v })); saveState('saved'); }, 600);
@@ -478,6 +494,18 @@ async function onDetailClick(e) {
     case 'star': S.as('outline', () => S.updateNode(sel, { star: !n.star })); render(); return;
     case 'edit': if (preview) { flushDetail(); preview = false; lsSet('galrae.v1.notePreview', false); renderDetail(); noteEd?.focus(); } return;
     case 'preview': flushDetail(); preview = true; lsSet('galrae.v1.notePreview', true); return renderDetail();
+    case 'note-open':
+      setNoteOpen(true);
+      // 비어 있으면 바로 쓰기, 있으면 읽기부터
+      if (!(n.note || '').trim()) { preview = false; lsSet('galrae.v1.notePreview', false); }
+      renderDetail();
+      if (!preview) noteEd?.focus();
+      return;
+    case 'note-close':
+      flushDetail();
+      setNoteOpen(false);
+      $('#detail', el).classList.remove('note-full');
+      return renderDetail();
     case 'save': return saveNow();
     case 'full': {
       const det = $('#detail', el);

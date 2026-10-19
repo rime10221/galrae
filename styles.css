@@ -663,3 +663,16 @@ textarea.drop { box-shadow: 0 0 0 3px var(--accent) !important; }
   .otext { font-size: 16px; padding: 9px 4px; }
   .has-sel .tree-main { padding-bottom: 180px; }
 }
+/* 접힌 외울 것: 버튼 한 줄 */
+.note-toggle { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 10px; padding: 14px 16px; border: 1.5px dashed var(--line2); border-radius: 14px; background: none; text-align: left; transition: background .15s, border-color .15s; }
+.note-toggle:hover { background: var(--bg3); border-color: var(--accent); }
+.note-toggle.has { border-style: solid; border-color: transparent; background: var(--card); box-shadow: var(--shadow); }
+.note-toggle.has:hover { box-shadow: 0 0 0 2px var(--accent); }
+.nt-ic { width: 40px; height: 40px; border-radius: 11px; background: var(--accent-2); color: var(--accent); display: grid; place-items: center; font-size: 19px; flex: none; }
+.note-toggle:not(.has) .nt-ic { background: var(--bg3); color: var(--muted); }
+.nt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.nt-main b { font-size: 16px; }
+.nt-main small { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-toggle em { font-style: normal; color: var(--accent); font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+.note-head .btn.ghost.small { padding: 4px 8px; margin-right: auto; color: var(--muted); }
+.note-head > span:first-child { margin-right: 0; }
