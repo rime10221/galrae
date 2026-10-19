@@ -5,7 +5,9 @@ import * as Zoom from './zoom.js';
 import { uid, toast } from './util.js';
 
 const DB = 'galrae-img', STORE = 'blobs';
-const MAX = 1600, QUALITY = 0.82;
+// 긴 변 2560px · JPEG 92%. 이 크기 안의 PNG/JPEG(스크린샷·사진)는 원본 그대로 둬서 글씨가 뭉개지지 않게
+const MAX = 2560, QUALITY = 0.92, KEEP_BYTES = 3 * 1024 * 1024;
+const KEEP_TYPES = /^image\/(jpeg|png|webp|gif)$/;
 let dbp = null;
 let fetcher = null; // 동기화 모듈이 등록: (fileId) => Promise<Blob>
 const urls = new Map();
@@ -35,7 +37,29 @@ export const putBlob = (id, blob) => tx('readwrite', (s) => s.put(blob, id));
 
 export const setFetcher = (fn) => { fetcher = fn; };
 
-// 파일 → 압축 JPEG → 저장. 새 이미지 id 반환
+// 큰 그림을 한 번에 줄이면 뭉개지므로 절반씩 여러 번 줄인다
+function shrink(src, w, h) {
+  let cur = src, cw = src.width, ch = src.height;
+  while (cw / 2 > w) {
+    cw = Math.round(cw / 2); ch = Math.round(ch / 2);
+    const step = document.createElement('canvas');
+    step.width = cw; step.height = ch;
+    const sx = step.getContext('2d');
+    sx.imageSmoothingQuality = 'high';
+    sx.drawImage(cur, 0, 0, cw, ch);
+    cur = step;
+  }
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(cur, 0, 0, w, h);
+  return c;
+}
+
+// 파일 → (필요하면 줄여서 JPEG) → 저장. 새 이미지 id 반환
 export async function addImage(file) {
   if (!file || !file.type.startsWith('image/')) throw new Error('이미지 파일이 아니에요');
   let blob = file, w = 0, h = 0;
@@ -43,14 +67,12 @@ export async function addImage(file) {
     const bmp = await createImageBitmap(file);
     const k = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
     w = Math.round(bmp.width * k); h = Math.round(bmp.height * k);
-    const c = document.createElement('canvas');
-    c.width = w; c.height = h;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(bmp, 0, 0, w, h);
-    const out = await new Promise((r) => c.toBlob(r, 'image/jpeg', QUALITY));
-    if (out && (out.size < file.size || file.type !== 'image/jpeg')) blob = out;
+    // 크기 안이고 너무 무겁지 않으면 원본 그대로 (화질 손실 없음)
+    if (!(k === 1 && file.size <= KEEP_BYTES && KEEP_TYPES.test(file.type))) {
+      const out = await new Promise((r) => shrink(bmp, w, h).toBlob(r, 'image/jpeg', QUALITY));
+      if (out && (k < 1 || out.size < file.size || !KEEP_TYPES.test(file.type))) blob = out;
+    }
+    bmp.close?.();
   } catch { /* 디코딩 실패 시 원본 그대로 */ }
   const id = 'i' + uid();
   await putBlob(id, blob);

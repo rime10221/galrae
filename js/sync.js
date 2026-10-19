@@ -172,7 +172,7 @@ async function uploadImages(fid) {
   const folder = await imgFolderId(fid);
   for (const { meta, blob } of list) {
     const b = 'galraeimg' + now();
-    const head = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: meta.id + '.jpg', parents: [folder] })}\r\n--${b}\r\nContent-Type: ${blob.type || 'image/jpeg'}\r\n\r\n`;
+    const head = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: meta.id + '.' + ((blob.type || 'image/jpeg').split('/')[1] || 'jpg').replace('jpeg', 'jpg'), parents: [folder] })}\r\n--${b}\r\nContent-Type: ${blob.type || 'image/jpeg'}\r\n\r\n`;
     const res = await gjson(`${UPLOAD}/files?uploadType=multipart&fields=id`, {
       method: 'POST',
       headers: { 'Content-Type': `multipart/related; boundary=${b}` },

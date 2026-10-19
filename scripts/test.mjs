@@ -428,9 +428,18 @@ const H = `
     S.addImageMeta('iremote', { w: 1, h: 1, size: 68, type: 'image/png' });
     S.patchImage('iremote', { fileId: 'remoteFile' });
     const u = await Images.urlFor('iremote');
-    return { ok: !!u, url: window.__urls.find((x) => x.includes('remoteFile')) || '' };
+    // 화질: 작은 스크린샷(PNG)은 원본 그대로, 아주 큰 사진만 긴 변 2560px 로
+    const mk = async (w, h, type) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = '#123'; x.fillRect(0, 0, w, h); x.fillStyle = '#fff'; x.font = '40px sans-serif'; x.fillText('글씨 ABC', 20, 60); return new File([await new Promise((r) => c.toBlob(r, type, 0.95))], 'a', { type }); };
+    const small = await mk(1200, 800, 'image/png');
+    const sid = await Images.addImage(small);
+    const sb = await Images.getBlob(sid);
+    const big = await mk(5000, 3000, 'image/jpeg');
+    const bid = await Images.addImage(big);
+    const quality = sb.type === 'image/png' && sb.size === small.size && S.imageMeta(bid).w === 2560 && S.imageMeta(bid).h === 1536;
+    return { ok: !!u, url: window.__urls.find((x) => x.includes('remoteFile')) || '', quality };
   });
   ok('사진 동기화: 다른 기기 사진을 Drive 에서 받기', r.ok && r.url.startsWith('https://www.googleapis.com/drive/v3/files/remoteFile'), r.url);
+  ok('사진 화질: 스크린샷은 원본 그대로, 큰 사진만 2560px', r.quality);
   await ctx.close();
 }
 
