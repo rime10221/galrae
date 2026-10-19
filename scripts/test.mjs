@@ -365,6 +365,39 @@ const H = `
   await ctx.close();
 }
 
+// ---------- 사진 동기화: 다른 기기에서 올린 사진을 Drive 에서 받아온다 ----------
+{
+  const ctx = await browser.createBrowserContext();
+  const page = await ctx.newPage();
+  await page.evaluateOnNewDocument(() => {
+    localStorage.setItem('galrae.v1.sync', JSON.stringify({ enabled: true, auto: false, token: 't', exp: Date.now() + 36e5, needLogin: false }));
+    window.__urls = [];
+    const real = window.fetch;
+    // 구글 API 는 가짜 응답 (사진 파일만 1x1 PNG)
+    window.fetch = async (u, o) => {
+      const url = String(u);
+      if (!url.startsWith('https://')) return real(u, o);
+      window.__urls.push(url);
+      if (url.includes('/files/remoteFile?alt=media')) {
+        const b = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
+        return new Response(new Blob([b], { type: 'image/png' }));
+      }
+      return new Response('{}', { status: 503 });
+    };
+  });
+  await page.goto(BASE + '#tree', { waitUntil: 'networkidle0' });
+  const r = await page.evaluate(async () => {
+    const S = await import('./js/store.js');
+    const Images = await import('./js/images.js');
+    S.addImageMeta('iremote', { w: 1, h: 1, size: 68, type: 'image/png' });
+    S.patchImage('iremote', { fileId: 'remoteFile' });
+    const u = await Images.urlFor('iremote');
+    return { ok: !!u, url: window.__urls.find((x) => x.includes('remoteFile')) || '' };
+  });
+  ok('사진 동기화: 다른 기기 사진을 Drive 에서 받기', r.ok && r.url.startsWith('https://www.googleapis.com/drive/v3/files/remoteFile'), r.url);
+  await ctx.close();
+}
+
 // ---------- 스크린샷 ----------
 if (SHOTS) {
   await mkdir(OUT, { recursive: true });

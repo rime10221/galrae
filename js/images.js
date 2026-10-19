@@ -62,7 +62,7 @@ export async function urlFor(id) {
   let blob = await getBlob(id);
   const meta = S.imageMeta(id);
   if (!blob && meta?.fileId && fetcher) {
-    try { blob = await fetcher(meta.fileId); if (blob) await putBlob(id, blob); } catch { blob = null; }
+    try { blob = await fetcher(meta.fileId); if (blob) await putBlob(id, blob); } catch (e) { console.warn('사진 받기 실패', id, e); blob = null; }
   }
   if (!blob) return null;
   const u = URL.createObjectURL(blob);
@@ -77,6 +77,10 @@ async function hydrate(img) {
   const u = await urlFor(img.dataset.img);
   if (u) { img.src = u; img.dataset.state = 'ok'; }
   else { img.dataset.state = 'missing'; img.alt = '사진을 불러오지 못했어요 (동기화 후 다시 시도)'; }
+}
+// 못 불러온 사진을 다시 시도 (동기화가 끝난 뒤)
+export function retryMissing() {
+  document.querySelectorAll('img[data-img][data-state="missing"]').forEach((img) => { delete img.dataset.state; img.alt = ''; hydrate(img); });
 }
 function scan(root) {
   if (root.nodeType !== 1) return;

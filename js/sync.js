@@ -259,6 +259,8 @@ export async function runSync({ manual = false } = {}) {
     st.needLogin = false;
     save();
     setStatus('ok');
+    // 동기화 전에 못 불러온 사진(다른 기기에서 막 올린 것)을 다시 시도
+    Images.retryMissing();
   } catch (e) {
     console.warn(e);
     if (String(e.message).includes('login_required')) setStatus('login', '로그인이 만료되었어요. 다시 로그인해 주세요.');
@@ -291,8 +293,9 @@ export function init() {
   // 다른 기기에서 올린 사진은 필요할 때 드라이브에서 받아온다
   Images.setFetcher(async (fileId) => {
     if (!st.enabled) return null;
-    const r = await gfetch(`/files/${fileId}?alt=media`);
-    return r.ok ? r.blob() : null;
+    const r = await gfetch(`${API}/files/${fileId}?alt=media`);
+    if (!r.ok) { console.warn('사진 받기 실패', fileId, r.status); return null; }
+    return r.blob();
   });
   if (!st.enabled) return;
   setTimeout(() => runSync({ manual: justLoggedIn }), 300);
