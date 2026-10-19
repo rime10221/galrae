@@ -1,6 +1,6 @@
 ﻿// 정리(트리) + 상세 패널
 // 한 번 누르면 선택, ✎ · 더블클릭 · F2 로 이름 바꾸기, ＋ 로 하위 추가
-// 선택한 상태에서: ↑↓ 이동 · ←→ 접기/펼치기 · Enter/F2 이름 · Tab/Shift+Tab 들여/내어쓰기 · Alt+↑↓ 순서 · Delete 삭제
+// 선택한 상태에서: ↑↓ 이동 · ←→ 접기/펼치기 · Enter/F2 이름 · Tab 같은 레벨 다음(없으면 새 항목) · Alt+←→ 내어/들여쓰기 · Alt+↑↓ 순서 · Delete 삭제
 import * as S from './store.js';
 import * as Ed from './editor.js';
 import { $, $$, esc, debounce, renderMd, firstLine, lsGet, lsSet, composing, toast, confirmDlg, openDialog } from './util.js';
@@ -40,7 +40,7 @@ export function init(root, hooks) {
         </div>
       </div>
       <div class="olist" id="olist" tabindex="0"></div>
-      <p class="tree-help muted small">누르면 선택 · ✎/더블클릭/F2 이름 바꾸기 · ＋ 하위 추가 · ↑↓ 이동 · ←→ 접기/펼치기 · Tab/Shift+Tab 들여/내어쓰기 · Alt+↑↓ 순서 · Delete 삭제</p>
+      <p class="tree-help muted small">누르면 선택 · ✎/더블클릭/F2 이름 바꾸기 · ＋ 하위 추가 · 🗑 삭제 · ↑↓ 이동 · ←→ 접기/펼치기 · Tab 같은 레벨 다음 항목(마지막이면 새 항목) · Alt+←→ 내어/들여쓰기 · Alt+↑↓ 순서</p>
     </div>
     <aside class="detail" id="detail"></aside>
     <div class="otools" id="otools">
@@ -143,7 +143,7 @@ function renderList() {
         ? `<input class="otitle" value="${esc(n.title)}" placeholder="제목" enterkeyhint="done" autocomplete="off">`
         : `<span class="otext ${n.title ? '' : 'empty'}">${esc(n.title || '제목 없음')}</span>`}
       <span class="ometa">${meta}</span>
-      ${editing ? '' : `<span class="oacts"><button data-act="add-child" tabindex="-1" title="하위 항목 추가">＋</button><button data-act="rename" tabindex="-1" title="이름 바꾸기 (F2 · 더블클릭)">✎</button></span>`}
+      ${editing ? '' : `<span class="oacts"><button data-act="add-child" tabindex="-1" title="하위 항목 추가">＋</button><button data-act="rename" tabindex="-1" title="이름 바꾸기 (F2 · 더블클릭)">✎</button><button data-act="delete" class="del" tabindex="-1" title="삭제 (Delete)">🗑</button></span>`}
     </div>`);
     if (notesOpen.has(id) && n.note?.trim()) rows.push(`<div class="onote md" data-note="${id}" style="--d:${d}">${renderMd(n.note)}</div>`);
     if (!closed) for (const k of kids) walk(k, d + 1);
@@ -221,6 +221,16 @@ function structural(fn, keepId) {
   return r;
 }
 
+// 같은 레벨에서 앞/뒤 항목으로. 뒤가 없으면 같은 레벨에 새 항목 추가 (edit: 다음 항목도 바로 이름 고치기)
+function stepSibling(id, dir, { edit = false } = {}) {
+  const sibs = S.children(S.parentOf(id));
+  const j = sibs.indexOf(id) + dir;
+  if (j < 0) return;
+  if (j >= sibs.length) return addAfter(id);
+  if (edit) return startEdit(sibs[j]);
+  select(sibs[j]);
+}
+
 function addAfter(id) {
   const p = S.parentOf(id);
   const nid = S.as('outline', () => S.addNode({ parent: p, index: S.children(p).indexOf(id) + 1 }));
@@ -280,6 +290,7 @@ function onListClick(e) {
       case 'open': return openDetail(id);
       case 'rename': return startEdit(id);
       case 'add-child': return addChild(id);
+      case 'delete': return remove(id);
     }
     return;
   }
@@ -300,11 +311,11 @@ function onKey(e) {
     else if (e.key === 'Escape') { e.preventDefault(); finishEdit(false); }
     else if (e.key === 'Tab') {
       e.preventDefault();
-      const v = e.target.value;
-      S.as('outline', () => S.updateNode(id, { title: v }));
-      if (e.shiftKey) S.as('outline', () => S.outdent(id));
-      else S.as('outline', () => { const np = S.indent(id); if (np) { collapsed.delete(np); saveCollapsed(); } });
-      renderList();
+      const wasNew = editingNew, empty = !e.target.value.trim();
+      finishEdit(true);
+      if (wasNew && empty) return;
+      if (e.shiftKey) return stepSibling(id, -1);
+      return stepSibling(id, 1, { edit: true });
     }
     return;
   }
@@ -318,11 +329,13 @@ function onKey(e) {
     case 'ArrowDown': if (e.altKey) { e.preventDefault(); return structural(() => S.moveBy(sel, 1)); } return go(i + 1);
     case 'ArrowLeft':
       e.preventDefault();
+      if (e.altKey) return structural(() => S.outdent(sel));
       if (S.children(sel).length && !collapsed.has(sel)) return toggle(sel, false);
       if (S.parentOf(sel)) return select(S.parentOf(sel));
       return;
     case 'ArrowRight':
       e.preventDefault();
+      if (e.altKey) return structural(() => { const np = S.indent(sel); if (np) { collapsed.delete(np); saveCollapsed(); } });
       if (S.children(sel).length && collapsed.has(sel)) return toggle(sel, true);
       return go(i + 1);
     case 'F2': case 'Enter':
@@ -330,9 +343,9 @@ function onKey(e) {
       if (mod) return openDetail(sel);
       return startEdit(sel);
     case 'Tab':
+      // 같은 레벨 다음 항목 선택, 마지막이면 같은 레벨에 새 항목 (Shift+Tab 은 이전 항목)
       e.preventDefault();
-      if (e.shiftKey) return structural(() => S.outdent(sel));
-      return structural(() => { const np = S.indent(sel); if (np) { collapsed.delete(np); saveCollapsed(); } });
+      return stepSibling(sel, e.shiftKey ? -1 : 1);
     case 'Delete': e.preventDefault(); return remove(sel);
     case 'Insert': e.preventDefault(); return addChild(sel);
     case 'Escape': sel = null; renderList(); renderDetail(); return;

@@ -90,11 +90,24 @@ const H = `
     click($(`.orow[data-id="${nid}"] .otext`)); await sleep(20);
     key(list, 'ArrowUp', { altKey: true }); await sleep(30);
     out.altMove = S.children(id1).indexOf(nid) === 2;
-    key(list, 'Tab'); await sleep(30);
+    key(list, 'ArrowRight', { altKey: true }); await sleep(30);
     out.tabIndent = S.depth(nid) === 4;
-    key(list, 'Tab', { shiftKey: true }); await sleep(30);
+    key(list, 'ArrowLeft', { altKey: true }); await sleep(30);
     out.shiftTab = S.depth(nid) === 3;
-    key(list, 'Delete'); await sleep(60);
+    // Tab: 같은 레벨 다음 항목 선택, 마지막이면 같은 레벨 새 항목
+    const sibs = S.children(id1);
+    click($(`.orow[data-id="${sibs[0]}"] .otext`)); await sleep(20);
+    key(list, 'Tab'); await sleep(30);
+    const nextOk = $('.orow.sel')?.dataset.id === sibs[1];
+    click($(`.orow[data-id="${sibs[sibs.length - 1]}"] .otext`)); await sleep(20);
+    key(list, 'Tab'); await sleep(30);
+    const ne = document.activeElement;
+    const newOk = ne?.matches('.otitle') && S.parentOf(ne.closest('.orow').dataset.id) === id1 && S.children(id1).length === sibs.length + 1;
+    key(ne, 'Escape'); await sleep(30);
+    out.tabNext = nextOk && newOk && S.children(id1).length === sibs.length;
+    // 🗑 버튼으로 삭제
+    click($(`.orow[data-id="${nid}"] .otext`)); await sleep(20);
+    click($(`.orow[data-id="${nid}"] [data-act="delete"]`)); await sleep(60);
     click(document.querySelector('dialog [data-close="ok"]')); await sleep(60);
     out.backspaceDel = !S.node(nid);
     const gdm = S.findByTitle('임신과 당뇨병');
@@ -250,9 +263,10 @@ const H = `
   ok('정리: ＋로 하위 추가', r.plusChild);
   ok('정리: 입력 후 Enter → 이어서 다음 항목, Esc → 빈 항목 삭제', r.plusFlow);
   ok('정리: Alt+↑ 순서 이동', r.altMove);
-  ok('트리: Tab 들여쓰기', r.tabIndent);
-  ok('트리: Shift+Tab 내어쓰기', r.shiftTab);
-  ok('정리: Delete 삭제', r.backspaceDel);
+  ok('정리: Alt+→ 들여쓰기', r.tabIndent);
+  ok('정리: Alt+← 내어쓰기', r.shiftTab);
+  ok('정리: Tab = 같은 레벨 다음 항목, 마지막이면 새 항목', r.tabNext);
+  ok('정리: 🗑 버튼 삭제', r.backspaceDel);
   ok('정리: 외울 것은 처음엔 버튼으로 접혀 있음(줄 수 표시)', r.noteFolded);
   ok('정리: 버튼 누르면 크게 펼쳐짐', r.noteUnfold);
   ok('편집기: 기존 내용이 보이는 대로(형광펜·목록)', r.richRoundtrip);

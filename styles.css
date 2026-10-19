@@ -676,3 +676,10 @@ textarea.drop { box-shadow: 0 0 0 3px var(--accent) !important; }
 .note-toggle em { font-style: normal; color: var(--accent); font-weight: 600; font-size: 13.5px; white-space: nowrap; }
 .note-head .btn.ghost.small { padding: 4px 8px; margin-right: auto; color: var(--muted); }
 .note-head > span:first-child { margin-right: 0; }
+.oacts button.del { color: var(--r1); }
+.oacts button.del:hover { background: var(--r1); color: #fff; }
+
+/* 숨긴 버튼은 자리도 차지하지 않게 (긴 제목이 잘리지 않도록) */
+.oacts { display: none; opacity: 1; }
+.orow:hover .oacts, .orow.sel .oacts { display: flex; }
+@media (max-width: 860px) { .orow:hover .oacts { display: none; } .orow.sel .oacts { display: flex; } }
