@@ -77,6 +77,12 @@ export function init(root, hooks) {
     if (!t) return;
     if (t.dataset.act === 'add-root') return addRoot();
     if (t.dataset.act === 'add-subtab') return addRoot(t.dataset.parent);
+    if (t.dataset.act === 'split' || t.dataset.act === 'unsplit') {
+      const on = t.dataset.act === 'split', id = t.dataset.id;
+      Subject.split(id, on);
+      toast(on ? `'${S.node(id).title}' 안의 갈래를 탭으로 나눴어요` : `'${S.node(id).title}' 탭 나누기를 껐어요`, { ms: 1800 });
+      return select(on ? Subject.current() : id);
+    }
     Subject.set(t.dataset.subject);
     $('#olist', el).scrollTo({ top: 0, left: 0 });
     select(t.dataset.subject);
@@ -566,7 +572,7 @@ function renderDetail() {
     <div class="d-field">
       <div class="d-label"><span>하위 갈래 ${kids.length}</span><button class="link" data-act="add-child">+ 하위 추가</button></div>
       <div class="chips">${kids.map((k) => `<button class="chip" data-sel="${k}">${esc(S.node(k).title || '제목 없음')}</button>`).join('') || '<span class="muted small">없음</span>'}</div>
-      ${kids.length && (!S.parentOf(sel) || S.node(S.parentOf(sel)).tabs) ? `<label class="d-opt"><input type="checkbox" data-act="tabs-toggle" ${n.tabs ? 'checked' : ''}><span><b>하위 갈래를 과목처럼 탭으로 나누기</b><small>양이 많을 때 (예: 내과 → 순환기 · 호흡기 · 소화기 …를 탭으로 골라 들어가기)</small></span></label>` : ''}
+      ${kids.length ? `<label class="d-opt"><input type="checkbox" data-act="tabs-toggle" ${n.tabs ? 'checked' : ''}><span><b>하위 갈래를 과목처럼 탭으로 나누기</b><small>양이 많을 때 (예: 내과 → 순환기 · 호흡기 · 소화기 …를 탭으로 골라 들어가기)</small></span></label>` : ''}
     </div>
     ${stats ? `<div class="d-field"><div class="d-label"><span>학습 기록</span></div><div class="pstats">${stats}</div></div>` : ''}
     <div class="d-actions">
@@ -661,8 +667,7 @@ async function onDetailClick(e) {
     }
     case 'add-child': return addChild(sel);
     case 'tabs-toggle':
-      S.as('outline', () => S.updateNode(sel, { tabs: !n.tabs }));
-      Subject.set(sel);
+      Subject.split(sel, !n.tabs);
       toast(n.tabs ? `'${n.title}' 하위 갈래를 탭으로 나눠요` : '탭 나누기를 껐어요', { ms: 1600 });
       return render();
     case 'train': return api.train(sel);

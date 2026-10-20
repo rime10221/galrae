@@ -184,7 +184,12 @@ const H = `
       click($(`#subjTabs [data-subject="${S.rootOf(gdm)}"]`)); await sleep(30);
       click($(`#subjTabs [data-subject="${med}"]`)); await sleep(30);
       const remembered = $('#subjTabs .subj-tabs.sub .subj-tab.on')?.dataset.subject === resp;
-      out.nestedTabs = !!S.node(med).tabs && twoRows && listCv && listResp && remembered;
+      // 탭 줄의 ⊟ 합치기 / ⊞ 안을 탭으로
+      click($('#subjTabs [data-act="unsplit"]')); await sleep(50);
+      const merged = !S.node(med).tabs && $$('#subjTabs .subj-tabs').length === 1 && !!$(`#subjTabs [data-act="split"][data-id="${med}"]`);
+      click($(`#subjTabs [data-act="split"][data-id="${med}"]`)); await sleep(50);
+      const resplit = !!S.node(med).tabs && $$('#subjTabs .subj-tabs').length === 2;
+      out.nestedTabs = !!S.node(med).tabs && twoRows && listCv && listResp && remembered && merged && resplit;
       await go('#tree');
     }
     // '/' 는 외울 것 편집기에서 그냥 입력 (빠른 찾기 안 뜸)

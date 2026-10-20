@@ -29,6 +29,16 @@ export function resolve() {
 
 export const current = () => resolve().scope;
 
+// 하위 갈래를 탭으로 나누기 켜기/끄기. 켤 때는 위쪽 갈래들도 같이 켜서 탭 줄이 이어지게 한다
+export function split(id, on) {
+  if (!S.node(id)) return;
+  S.as('outline', () => {
+    if (!on) return S.updateNode(id, { tabs: false });
+    for (const n of S.path(id)) if (!n.tabs) S.updateNode(n.id, { tabs: true });
+  });
+  set(on ? (S.children(id)[0] || id) : id);
+}
+
 // 이 갈래가 지금 탭에서 고른 경로(과목 › 하위 과목…) 위에 있거나 그 범위 안인지
 export function inView(id) {
   const { rows, scope } = resolve();
@@ -51,5 +61,5 @@ export function tabsHtml({ add = false } = {}) {
   return rows.map((r, i) => `<div class="subj-tabs ${i ? 'sub' : ''}" role="tablist">${i ? '<span class="subj-arrow">›</span>' : ''}${r.items.map((x) => {
     const n = S.node(x);
     return `<button class="subj-tab ${x === r.on ? 'on' : ''}${isTabs(x) ? ' group' : ''}" role="tab" aria-selected="${x === r.on}" data-subject="${x}"><span>${esc(n.title || '제목 없음')}</span><small>${S.descendants(x).length - 1}</small></button>`;
-  }).join('')}${add ? (i ? `<button class="subj-tab add" data-act="add-subtab" data-parent="${r.parent}" title="이 안에 새 하위 과목">＋</button>` : '<button class="subj-tab add" data-act="add-root" title="새 과목">＋ 과목</button>') : ''}</div>`).join('');
+  }).join('')}${add ? (i ? `<button class="subj-tab add" data-act="add-subtab" data-parent="${r.parent}" title="이 안에 새 하위 과목">＋</button><button class="subj-tab split off" data-act="unsplit" data-id="${r.parent}" title="'${esc(S.node(r.parent).title)}' 탭 나누기 끄기">⊟ 합치기</button>` : '<button class="subj-tab add" data-act="add-root" title="새 과목">＋ 과목</button>') : ''}${add && i === rows.length - 1 && S.children(r.on).length && !isTabs(r.on) ? `<button class="subj-tab split" data-act="split" data-id="${r.on}" title="'${esc(S.node(r.on).title)}' 안의 대단원을 과목처럼 탭으로 나누기">⊞ 안을 탭으로</button>` : ''}</div>`).join('');
 }
