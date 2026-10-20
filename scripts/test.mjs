@@ -167,6 +167,42 @@ const H = `
       list.style.width = '';
       await go('#tree');
     }
+    // 과목 안의 과목: 내과에 '하위 갈래를 탭으로' 를 켜면 순환기·호흡기가 아래 줄 탭으로
+    {
+      const med = S.findByTitle('내과');
+      const cv = S.findByTitle('순환기');
+      const resp = S.addNode({ parent: med, title: '호흡기' });
+      S.addNode({ parent: resp, title: '천식' });
+      await go('#tree/' + med); await sleep(50);
+      click($('.detail [data-act="tabs-toggle"]')); await sleep(50);
+      const sub = $$('#subjTabs .subj-tabs.sub [data-subject]').map((t) => t.dataset.subject);
+      const twoRows = $$('#subjTabs .subj-tabs').length === 2 && sub.includes(cv) && sub.includes(resp);
+      const listCv = $$('.orow').length > 0 && $$('.orow').every((r) => S.isAncestor(cv, r.dataset.id));
+      click($(`#subjTabs [data-subject="${resp}"]`)); await sleep(50);
+      const listResp = $$('.orow').length === 1 && S.node($('.orow').dataset.id).title === '천식';
+      // 다른 과목 갔다 와도 마지막 하위 과목 기억
+      click($(`#subjTabs [data-subject="${S.rootOf(gdm)}"]`)); await sleep(30);
+      click($(`#subjTabs [data-subject="${med}"]`)); await sleep(30);
+      const remembered = $('#subjTabs .subj-tabs.sub .subj-tab.on')?.dataset.subject === resp;
+      out.nestedTabs = !!S.node(med).tabs && twoRows && listCv && listResp && remembered;
+      await go('#tree');
+    }
+    // '/' 는 외울 것 편집기에서 그냥 입력 (빠른 찾기 안 뜸)
+    {
+      await go('#tree/' + gdm); await sleep(30);
+      await openNote();
+      const rich = $('.d-note-host .rich');
+      rich.focus();
+      rich.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true }));
+      await sleep(30);
+      const noPalette = !$('dialog.palette');
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true }));
+      await sleep(30);
+      out.slash = noPalette && !!$('dialog.palette');
+      $('dialog.palette')?.close(); await sleep(30);
+      click($('.detail [data-act="preview"]')); await sleep(30);
+      await go('#tree');
+    }
     // 사진 붙여넣기 → IndexedDB 저장 + 메모에 참조 + 미리보기에서 표시
     await go('#tree/' + gdm);
     await openNote();
@@ -387,6 +423,8 @@ const H = `
   ok('정리: 외울 것 토글(기본 접힘·모두 펼치기·하나 접기)', r.inlineNotes);
   ok('정리: 과목 탭으로 나눠 보기', r.subjectTabs);
   ok('정리: 좁으면 보고 있는 줄 제목으로 옆 스크롤', r.revealX);
+  ok('정리: 과목 안의 과목(하위 갈래를 탭으로)', r.nestedTabs);
+  ok('편집기: / 를 쳐도 빠른 찾기 안 뜸', r.slash);
   ok('사진: 붙여넣기 저장', r.imgSaved);
   ok('사진: 외울 것에 표시', r.imgShown);
   ok('사진: 읽기 화면에서 가로 꽉 차게', r.imgWide);

@@ -158,7 +158,7 @@ function renderLibraryList() {
   // 과목은 탭으로 나누고 고른 과목만 (검색은 모든 과목에서)
   const subj = Subject.current();
   const tabs = $('#libTabs', el);
-  if (tabs) tabs.innerHTML = libQuery ? '' : Subject.tabsHtml(subj);
+  if (tabs) tabs.innerHTML = libQuery ? '' : Subject.tabsHtml();
   const rows = [];
   const q = libQuery.toLowerCase();
   const row = (id, d) => {

@@ -73,9 +73,10 @@ export function init(root, hooks) {
   $('.toolbar', el).addEventListener('click', onToolbar);
   // 과목 탭: 누르면 그 과목만 보기 (과목 자체가 선택되어 상세에 열린다)
   $('#subjTabs', el).addEventListener('click', (e) => {
-    const t = e.target.closest('[data-subject],[data-act="add-root"]');
+    const t = e.target.closest('[data-subject],[data-act]');
     if (!t) return;
     if (t.dataset.act === 'add-root') return addRoot();
+    if (t.dataset.act === 'add-subtab') return addRoot(t.dataset.parent);
     Subject.set(t.dataset.subject);
     $('#olist', el).scrollTo({ top: 0, left: 0 });
     select(t.dataset.subject);
@@ -141,9 +142,10 @@ function renderList() {
   const ms = matchSet();
   const mm = S.masteryMap();
   // 과목은 탭으로 나누고, 고른 과목의 하위만 목록에 (검색 중에는 모든 과목)
-  let subj = Subject.current();
-  if (sel && S.node(sel) && !filter && S.rootOf(sel) !== subj) { Subject.set(sel); subj = S.rootOf(sel); }
-  $('#subjTabs', el).innerHTML = filter ? '' : Subject.tabsHtml(subj, { add: true });
+  // 선택한 갈래가 지금 탭 밖이면 그 갈래가 있는 탭으로
+  if (sel && S.node(sel) && !filter && !Subject.inView(sel)) Subject.set(sel);
+  const subj = Subject.current();
+  $('#subjTabs', el).innerHTML = filter ? '' : Subject.tabsHtml({ add: true });
   const rows = [];
   const walk = (id, d) => {
     if (ms && !ms.has(id)) return;
@@ -489,13 +491,13 @@ function tool(name) {
   }
 }
 
-// 새 과목: 이름을 묻고 그 과목 탭으로
-async function addRoot() {
-  const name = await promptDlg('새 과목 이름', '', '예) 내과');
+// 새 과목(parent 가 있으면 그 안의 하위 과목): 이름을 묻고 그 탭으로
+async function addRoot(parent = null) {
+  const name = await promptDlg(parent ? `'${S.node(parent)?.title || ''}' 안에 새 하위 과목` : '새 과목 이름', '', parent ? '예) 순환기' : '예) 내과');
   if (!name) return;
   filter = '';
   $('#treeFilter', el).value = '';
-  const nid = S.as('outline', () => S.addNode({ parent: null, title: name }));
+  const nid = S.as('outline', () => S.addNode({ parent, title: name }));
   Subject.set(nid);
   select(nid);
 }
@@ -564,6 +566,7 @@ function renderDetail() {
     <div class="d-field">
       <div class="d-label"><span>하위 갈래 ${kids.length}</span><button class="link" data-act="add-child">+ 하위 추가</button></div>
       <div class="chips">${kids.map((k) => `<button class="chip" data-sel="${k}">${esc(S.node(k).title || '제목 없음')}</button>`).join('') || '<span class="muted small">없음</span>'}</div>
+      ${kids.length && (!S.parentOf(sel) || S.node(S.parentOf(sel)).tabs) ? `<label class="d-opt"><input type="checkbox" data-act="tabs-toggle" ${n.tabs ? 'checked' : ''}><span><b>하위 갈래를 과목처럼 탭으로 나누기</b><small>양이 많을 때 (예: 내과 → 순환기 · 호흡기 · 소화기 …를 탭으로 골라 들어가기)</small></span></label>` : ''}
     </div>
     ${stats ? `<div class="d-field"><div class="d-label"><span>학습 기록</span></div><div class="pstats">${stats}</div></div>` : ''}
     <div class="d-actions">
@@ -657,6 +660,11 @@ async function onDetailClick(e) {
       return;
     }
     case 'add-child': return addChild(sel);
+    case 'tabs-toggle':
+      S.as('outline', () => S.updateNode(sel, { tabs: !n.tabs }));
+      Subject.set(sel);
+      toast(n.tabs ? `'${n.title}' 하위 갈래를 탭으로 나눠요` : '탭 나누기를 껐어요', { ms: 1600 });
+      return render();
     case 'train': return api.train(sel);
     case 'graph': return api.go('graph', sel);
     case 'export': return api.exportDialog(sel);

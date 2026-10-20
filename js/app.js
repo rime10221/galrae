@@ -53,7 +53,8 @@ function boot() {
   });
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); palette(); }
-    else if (e.key === '/' && !e.target.closest('input,textarea,dialog') && current !== 'train') { e.preventDefault(); palette(); }
+    // '/' 빠른 찾기: 글을 쓰는 곳(입력칸·외울 것 편집기)에서는 그냥 '/' 입력
+    else if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest('input,textarea,select,dialog,[contenteditable]') && !e.target.isContentEditable && current !== 'train') { e.preventDefault(); palette(); }
   });
   S.onChange(onStoreChange);
   Sync.onStatus(renderSyncChip);
