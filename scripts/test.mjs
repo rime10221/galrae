@@ -422,7 +422,27 @@ const H = `
       out.rightNote = out.rightNote && $('.orow.sel')?.dataset.id === par;
       key($('#olist'), 'ArrowRight'); await sleep(40);
       out.rightNote = out.rightNote && $('.orow.sel')?.dataset.id === leaf && document.activeElement === $('#olist');
+      // 이미 쓴 글이 길면 → 키로 들어갔을 때 마지막 줄로 화면이 내려가 있어야
+      S.updateNode(leaf, { note: Array.from({ length: 40 }, (_, k) => '- 줄 ' + k).join('\n') });
+      await sleep(30);
+      $('#olist').focus(); key($('#olist'), 'ArrowLeft'); await sleep(30); key($('#olist'), 'ArrowDown'); await sleep(30);
+      key($('#olist'), 'ArrowRight'); await sleep(80);
+      const lastLn = $('.d-note-host .rich').lastElementChild, lr = lastLn.getBoundingClientRect();
+      const an = getSelection().anchorNode;
+      out.rightNote = out.rightNote && lastLn.contains(an) && lr.bottom <= innerHeight + 1 && lr.top >= 0;
+      key(document.activeElement, 'Escape'); await sleep(40);
       S.updateNode(leaf, { note: '' });
+      // Shift+Enter: 선택한 줄에 하위 추가, 이름 칸에서도 저장 후 그 아래 하위 추가
+      const kids0 = S.children(leaf).length;
+      $('#olist').focus(); key($('#olist'), 'Enter', { shiftKey: true }); await sleep(40);
+      const inp = $('.orow .otitle');
+      inp.value = '하위 하나'; key(inp, 'Enter', { shiftKey: true }); await sleep(40);
+      const c1 = S.children(leaf).find((x) => S.node(x).title === '하위 하나');
+      const inp2 = $('.orow .otitle');
+      inp2.value = '손자'; key(inp2, 'Enter'); await sleep(40);
+      key($('.orow .otitle'), 'Escape'); await sleep(40);
+      out.addChildKey = S.children(leaf).length === kids0 + 1 && !!c1 && S.children(c1).map((x) => S.node(x).title).join() === '손자';
+      S.deleteNode(c1);
     }
     // 함께 학습: 대단원 세트에 같은 과목의 다른 갈래를 더하기
     {
@@ -569,6 +589,7 @@ const H = `
   ok('카드: 되돌리기', r.undo);
   ok('내 세트: 여러 범위 묶기', r.preset);
   ok('정리: 하위 없는 갈래에서 → 는 외울 것 쓰기, Esc 로 목록', r.rightNote);
+  ok('정리: Shift+Enter 로 하위 추가(이름 칸에서도)', r.addChildKey);
   ok('카드: 같은 과목의 다른 갈래와 함께 학습', r.together);
   ok('카드: 모아 보기(별표 · 모르는 카드)', r.special);
   ok('마인드맵: 노트 카드', r.noteCard);

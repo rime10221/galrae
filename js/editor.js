@@ -166,8 +166,9 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
   function focus(end = false) {
     (raw ? ta : rich).focus();
     if (!end) return;
-    if (raw) ta.setSelectionRange(ta.value.length, ta.value.length);
-    else if (rich.lastElementChild) placeCaret(rich.lastElementChild, true);
+    // 커서를 끝에 두고, 화면도 그 줄이 보이게 내린다 (긴 글이면 위에 머물러 있지 않게)
+    if (raw) { ta.setSelectionRange(ta.value.length, ta.value.length); ta.scrollTop = ta.scrollHeight; ta.scrollIntoView({ block: 'nearest' }); }
+    else if (rich.lastElementChild) { placeCaret(rich.lastElementChild, true); rich.scrollTop = rich.scrollHeight; rich.lastElementChild.scrollIntoView({ block: 'nearest' }); }
   }
   let picked = null; // 선택한 사진
   let last = md || '';

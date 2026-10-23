@@ -173,7 +173,7 @@ function renderList() {
         ? `<input class="otitle" value="${esc(n.title)}" placeholder="제목" enterkeyhint="done" autocomplete="off">`
         : `<span class="otext ${n.title ? '' : 'empty'}">${esc(n.title || '제목 없음')}</span>`}
       <span class="ometa">${meta}</span>
-      ${editing ? '' : `<span class="oacts"><button data-act="grip" class="grip" tabindex="-1" title="끌어서 순서 바꾸기 (Alt+↑↓)">⠿</button><button data-act="add-child" tabindex="-1" title="하위 항목 추가">＋</button><button data-act="rename" tabindex="-1" title="이름 바꾸기 (F2 · 더블클릭)">✎</button><button data-act="delete" class="del" tabindex="-1" title="삭제 (Delete)">🗑</button></span>`}
+      ${editing ? '' : `<span class="oacts"><button data-act="grip" class="grip" tabindex="-1" title="끌어서 순서 바꾸기 (Alt+↑↓)">⠿</button><button data-act="add-child" tabindex="-1" title="하위 항목 추가 (Shift+Enter · Insert)">＋</button><button data-act="rename" tabindex="-1" title="이름 바꾸기 (F2 · 더블클릭)">✎</button><button data-act="delete" class="del" tabindex="-1" title="삭제 (Delete)">🗑</button></span>`}
     </div>`);
     if (notesOpen.has(id) && n.note?.trim()) rows.push(`<div class="onote md" data-note="${id}" style="--d:${d}">${renderMd(n.note)}</div>`);
     if (!closed) for (const k of kids) walk(k, d + 1);
@@ -446,7 +446,9 @@ function onKey(e) {
   // 이름 고치는 중
   if (e.target.matches('.otitle')) {
     const id = editingId;
-    if (e.key === 'Enter') { e.preventDefault(); finishEdit(true, { next: !mod }); }
+    // Shift+Enter: 저장하고 바로 그 아래에 하위 추가 (비워 둔 새 항목이면 그냥 지움)
+    if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); finishEdit(true); if (S.node(id)?.title) addChild(id); }
+    else if (e.key === 'Enter') { e.preventDefault(); finishEdit(true, { next: !mod }); }
     else if (e.key === 'Escape') { e.preventDefault(); finishEdit(false); }
     else if (e.key === 'Tab') {
       e.preventDefault();
@@ -482,6 +484,7 @@ function onKey(e) {
     case 'F2': case 'Enter':
       e.preventDefault();
       if (mod) return openDetail(sel);
+      if (e.key === 'Enter' && e.shiftKey) return addChild(sel);
       return startEdit(sel);
     case 'Tab':
       // 같은 레벨 다음 항목 선택, 마지막이면 같은 레벨에 새 항목 (Shift+Tab 은 이전 항목)
@@ -582,7 +585,7 @@ function renderDetail() {
         : `<div class="d-note-host"></div>`}
     </div>`}
     <div class="d-field">
-      <div class="d-label"><span>하위 갈래 ${kids.length}</span><button class="link" data-act="add-child">+ 하위 추가</button></div>
+      <div class="d-label"><span>하위 갈래 ${kids.length}</span><button class="link" data-act="add-child" title="Shift+Enter · Insert">+ 하위 추가</button></div>
       <div class="chips">${kids.map((k) => `<button class="chip" data-sel="${k}">${esc(S.node(k).title || '제목 없음')}</button>`).join('') || '<span class="muted small">없음</span>'}</div>
       ${kids.length ? `<label class="d-opt"><input type="checkbox" data-act="tabs-toggle" ${n.tabs ? 'checked' : ''}><span><b>하위 갈래를 과목처럼 탭으로 나누기</b><small>양이 많을 때 (예: 내과 → 순환기 · 호흡기 · 소화기 …를 탭으로 골라 들어가기)</small></span></label>` : ''}
     </div>
