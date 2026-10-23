@@ -350,6 +350,24 @@ const H = `
     out.defaultLevel = out.defaultLevel && !$('#view-train .level-btn.leaf.on') && $$('#view-train .level-btn.on').map((x) => +x.dataset.level).join() === '3';
     const expected = cardIds(3).length;
     out.deckCount = $$('.term-row').length === expected;
+    // 📍 어디에 속하는지: 평소엔 숨김, 누르면 경로 + 같은 층 갈래(자기 표시), 다음 카드로 가면 닫힘
+    {
+      click($('#view-train [data-seg="cardMode"] [data-v="browse"]')); await sleep(20);
+      click($('#view-train [data-act="start"]')); await sleep(40);
+      const cid = JSON.parse(localStorage.getItem('galrae.v2.session')).cards[0];
+      const hiddenFirst = $('#where').hidden && !$('#flash .crumbs');
+      key(document.body, 'i'); await sleep(20);
+      const sibs = S.children(S.parentOf(cid)).map((k) => S.node(k).title);
+      const shown = !$('#where').hidden && $$('#where .where-sibs li').map((x) => x.querySelector('span').textContent).join('|') === sibs.join('|')
+        && $('#where .where-sibs li.me span').textContent === S.node(cid).title && $('#where .where-path').textContent.includes(S.node(S.parentOf(cid)).title);
+      key(document.body, 'ArrowRight'); await sleep(200);
+      out.where = hiddenFirst && shown && $('#where').hidden;
+      click($('#view-train [data-act="where"]')); await sleep(20);
+      out.where = out.where && !$('#where').hidden;
+      key(document.body, 'Escape'); await sleep(20);
+      out.where = out.where && $('#where').hidden && !!$('#flash');
+      click($('#view-train [data-act="quit"]')); await sleep(40);
+    }
     // 넘기며 외우기: 기록 없이 앞뒤로
     click($('#view-train [data-seg="cardMode"] [data-v="browse"]')); await sleep(20);
     const progBefore = JSON.stringify(S.getData().progress);
@@ -541,6 +559,7 @@ const H = `
   ok('카드: 세트 목록', r.library);
   ok('카드: 기본은 맨 끝 갈래(깊이 섞여도) + 레벨로 바꾸기', r.defaultLevel);
   ok('카드: 레벨별 장수', r.deckCount);
+  ok('카드: 📍 어디에 속하는지(경로 + 같은 층 갈래)', r.where);
   ok('카드: 넘기며 외우기(기록 없음, 앞뒤 이동)', r.browse);
   ok('카드: 끝까지 진행', r.card.steps);
   ok('카드: 뒤집기', r.card.flipOk);

@@ -857,3 +857,19 @@ html { touch-action: pan-x pan-y; }
 .together p { margin: 8px 0 0; }
 .set-ic.star { background: rgba(255, 204, 0, .18); color: #e0a800; }
 .set-ic.unknown { background: var(--r1bg); color: var(--r1); }
+
+/* ---------- 카드: 📍 어디에 속하는지 ---------- */
+.play { position: relative; }
+.where-btn.on { background: var(--accent); color: var(--accent-text); }
+.where { position: absolute; z-index: 6; top: 64px; left: 20px; right: 20px; max-height: 60vh; overflow: auto; padding: 14px 16px 16px; border-radius: 20px; background: var(--card); box-shadow: var(--shadow-lg), 0 0 0 1px var(--line); font-size: 15px; }
+.where-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.where-top b { font-size: 13px; color: var(--muted); font-weight: 600; }
+.where-path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-weight: 600; }
+.where-path i { color: var(--muted2); font-style: normal; }
+.where-h { margin: 12px 0 6px; font-size: 13px; color: var(--muted); }
+.where-sibs { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; counter-reset: s; }
+.where-sibs li { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 10px; counter-increment: s; }
+.where-sibs li::before { content: counter(s); color: var(--muted2); font-size: 12px; min-width: 1.2em; font-variant-numeric: tabular-nums; }
+.where-sibs li.me { background: var(--accent-2); color: var(--accent); font-weight: 700; }
+.where-sibs li em { margin-left: auto; font-style: normal; font-size: 12px; font-weight: 600; }
+@media (max-width: 860px) { .where { top: 56px; left: 14px; right: 14px; } }

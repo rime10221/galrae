@@ -344,22 +344,44 @@ function backHtml(id) {
   return `<h4 class="back-h">하위 갈래 ${kids.length}</h4>${list}`;
 }
 
+// 📍 어디에 속하는지: 위 갈래 경로 + 바로 위 갈래에서 갈라지는 같은 층 갈래들 (누를 때만 보여 줌)
+let whereFor = null;
+function whereHtml(id) {
+  const par = S.parentOf(id);
+  const path = S.path(id).slice(0, -1);
+  const sibs = par ? S.children(par) : S.roots();
+  return `<div class="where-top"><b>어디에 속할까</b><button class="icon-btn small" data-act="where" title="닫기 (I)">✕</button></div>
+    <div class="where-path">${path.map((x) => `<span>${esc(x.title || '제목 없음')}</span>`).join('<i>›</i>') || '<span class="muted">맨 위 (과목)</span>'}</div>
+    <div class="where-h">${par ? `「${esc(S.node(par).title || '제목 없음')}」에서 갈라지는 갈래 ${sibs.length}` : `과목 ${sibs.length}`}</div>
+    <ol class="where-sibs">${sibs.map((k) => `<li class="${k === id ? 'me' : ''}"><span>${esc(S.node(k).title || '제목 없음')}</span>${k === id ? '<em>이 카드</em>' : ''}</li>`).join('')}</ol>`;
+}
+
+function toggleWhere() {
+  if (!session || session.done || session.paused) return;
+  const id = session.cards[session.i];
+  whereFor = whereFor === id ? null : id;
+  const box = $('#where', el);
+  if (box) box.hidden = whereFor !== id;
+  $('[data-act="where"].where-btn', el)?.classList.toggle('on', whereFor === id);
+}
+
 function renderCard() {
   const s = session;
   const id = s.cards[s.i];
   const n = S.node(id);
-  const crumbs = S.path(id).slice(0, -1).map((x) => esc(x.title)).join(' <i>›</i> ');
+  if (whereFor !== id) whereFor = null;
   el.innerHTML = `<div class="play" style="--scale:${S.settings.cardScale}">
     <div class="play-top">
       <button class="icon-btn" data-act="quit" title="끝내기 (Esc)">✕</button>
       <div class="play-title"><b>${s.i + 1} / ${s.cards.length}</b><small>${esc(s.title)}</small></div>
+      <button class="icon-btn where-btn ${whereFor === id ? 'on' : ''}" data-act="where" title="어디에 속하는지 (I)">📍</button>
       ${browsing() ? '<button class="icon-btn" data-act="shuffle-now" title="섞기">⇄</button>' : `<button class="icon-btn" data-act="undo" ${s.hist.length ? '' : 'disabled'} title="되돌리기 (Z)">↶</button>`}
     </div>
     <div class="bar"><i style="width:${((s.i + (browsing() ? 1 : 0)) / s.cards.length) * 100}%"></i></div>
     ${browsing() ? '<div class="tally browse"><span class="t-mode">넘기며 외우기 · 기록 안 됨</span></div>' : `<div class="tally"><span class="t-no">${s.unknown.length}</span><span class="t-yes">${s.known.length}</span></div>`}
+    <div class="where" id="where" ${whereFor === id ? '' : 'hidden'}>${whereHtml(id)}</div>
     <div class="flip ${s.flipped ? 'flipped' : ''}" id="flash">
       <div class="face front">
-        ${crumbs ? `<div class="crumbs">${crumbs}</div>` : ''}
         <div class="term">${esc(n.title || '제목 없음')}</div>
         <button class="star ${n.star ? 'on' : ''}" data-act="star" title="별표">★</button>
         <span class="flip-hint">${browsing() ? '눌러서 뒤집기 · 옆으로 밀어서 넘기기' : '눌러서 뒤집기'}</span>
@@ -545,6 +567,7 @@ async function onClick(e) {
     case 'prev': return move(-1);
     case 'next': return move(1);
     case 'flip': return flip();
+    case 'where': return toggleWhere();
     case 'shuffle-now': { const s = session; const rest = shuffle(s.cards.slice(s.i)); s.cards.splice(s.i, rest.length, ...rest); s.flipped = false; persist(); toast('남은 카드를 섞었어요', { ms: 1200 }); return render(); }
     case 'to-test': return begin(shuffle(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from, 'test');
     case 'restart': return begin(shuffle(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from, session.mode);
@@ -600,6 +623,8 @@ function onKey(e) {
   const k = e.key;
   // 결과 화면에서도 마지막 카드는 되돌릴 수 있게
   if (session.done) { if (k === 'z' || k === 'Z') undo(); return; }
+  if (k === 'i' || k === 'I' || k === 'ㅑ') return toggleWhere();
+  if (k === 'Escape' && whereFor) return toggleWhere();
   if (k === ' ' || k === 'Enter' || k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); flip(); }
   else if (browsing() && k === 'ArrowLeft') move(-1);
   else if (browsing() && k === 'ArrowRight') move(1);
