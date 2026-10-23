@@ -3,10 +3,13 @@
 // · 글자를 드래그하면 위에 작은 메뉴, 오른쪽 클릭해도 같은 메뉴
 // · '텍스트로' 를 누르면 예전처럼 마크다운(==, -)으로 직접 편집
 // · 사진은 누르면 선택(테두리) → Delete/Backspace 또는 메뉴의 🗑 로 삭제
+// · 🎨 색: 형광펜 색(기본 노랑) · 글자색. 형광펜 버튼은 마지막에 고른 색으로 칠한다
 import * as Images from './images.js';
-import { esc, composing, lsGet, lsSet, toast } from './util.js';
+import { esc, composing, lsGet, lsSet, toast, colorMd, HL_COLORS, TEXT_COLORS } from './util.js';
 
 const RAW_KEY = 'galrae.v1.rawEditor';
+const HL_KEY = 'galrae.v1.hlColor';
+const lastHl = () => { const c = lsGet(HL_KEY, ''); return HL_COLORS.some((x) => x[0] === c) ? c : ''; };
 
 // ---------- 마크다운 ↔ 편집용 HTML ----------
 function inlineToHtml(s) {
@@ -14,8 +17,7 @@ function inlineToHtml(s) {
   x = x.replace(/!\[([^\]]*)\]\(img:([A-Za-z0-9]+)\)/g, '<img class="md-img" data-img="$2" alt="$1" contenteditable="false">');
   x = x.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img class="md-img" src="$2" alt="$1" contenteditable="false">');
   x = x.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-  x = x.replace(/==(.+?)==/g, '<mark>$1</mark>');
-  return x;
+  return colorMd(x);
 }
 
 export function mdToHtml(md) {
@@ -46,7 +48,10 @@ function inlineToMd(node) {
       out += t.trim() ? `**${t}**` : t;
     } else if (c.tagName === 'MARK') {
       const t = inlineToMd(c);
-      out += t.trim() ? `==${t}==` : t;
+      out += t.trim() ? `==${c.dataset.c ? `{${c.dataset.c}}` : ''}${t}==` : t;
+    } else if (c.tagName === 'SPAN' && c.classList.contains('tc') && c.dataset.c) {
+      const t = inlineToMd(c);
+      out += t.trim() ? `{${c.dataset.c}}${t}{/}` : t;
     } else if (c.tagName === 'DIV' || c.tagName === 'P') {
       out += (out ? '\n' : '') + inlineToMd(c);
     } else out += inlineToMd(c);
@@ -73,10 +78,17 @@ export function htmlToMd(root) {
 // ---------- 편집기 ----------
 export const PLACEHOLDER = '여기에 외울 것을 적어요. 글자를 드래그하면 형광펜·굵게 메뉴가 떠요. 사진은 붙여넣기(Ctrl+V)·끌어놓기·📷 버튼.';
 
+// 색 고르기 (편집기 버튼의 🎨 · 글자를 드래그하면 뜨는 메뉴)
+const PALETTE = `<div class="cp-box">
+  <div class="cp-row"><span class="cp-l">형광펜</span>${HL_COLORS.map(([c, n]) => `<button type="button" class="cp hl" data-ed="hl:${c}" data-c="${c}" title="${n} 형광펜${c ? '' : ' (기본)'}"></button>`).join('')}</div>
+  <div class="cp-row"><span class="cp-l">글자색</span><button type="button" class="cp tx" data-ed="tc:" title="기본 글자색">가</button>${TEXT_COLORS.map(([c, n]) => `<button type="button" class="cp tx" data-ed="tc:${c}" data-c="${c}" title="${n} 글자">가</button>`).join('')}</div>
+</div>`;
+
 const BAR = `<div class="ed-bar">
   <label class="ed-btn" title="사진 넣기 (붙여넣기·끌어놓기도 돼요)">📷<span> 사진</span><input type="file" accept="image/*" multiple hidden data-ed="file"></label>
   <span class="ed-sep"></span>
-  <button type="button" class="ed-btn" data-ed="mark" title="형광펜"><span class="ed-mark">형광펜</span></button>
+  <button type="button" class="ed-btn" data-ed="mark" title="형광펜 (Ctrl+H)"><span class="ed-mark">형광펜</span></button>
+  <button type="button" class="ed-btn" data-ed="palette" title="형광펜 색 · 글자색">🎨<span> 색</span></button>
   <button type="button" class="ed-btn" data-ed="bold" title="굵게 (Ctrl+B)"><b>굵게</b></button>
   <button type="button" class="ed-btn" data-ed="list" title="글머리 목록">• 목록</button>
   <button type="button" class="ed-btn" data-ed="indent" title="들여쓰기 (Tab)">⇥</button>
@@ -110,33 +122,53 @@ function getBubble() {
     showBubble(ed, s.getRangeAt(0).getBoundingClientRect());
   });
   document.addEventListener('scroll', hideBubble, true);
+  // 색 고르기 창은 바깥을 누르면 닫는다
+  document.addEventListener('pointerdown', (e) => {
+    for (const p of document.querySelectorAll('.ed-pop:not([hidden])')) if (!p.contains(e.target) && !e.target.closest('[data-ed="palette"]')) p.hidden = true;
+  });
   return bubble;
 }
 const BUBBLE = {
-  text: `<button data-ed="mark"><span class="ed-mark">형광펜</span></button><button data-ed="bold"><b>굵게</b></button><button data-ed="list">• 목록</button><button data-ed="clear">지우기</button>`,
+  text: `<div class="bb-row"><button data-ed="mark"><span class="ed-mark">형광펜</span></button><button data-ed="bold"><b>굵게</b></button><button data-ed="list">• 목록</button><button data-ed="clear">지우기</button></div>${PALETTE}`,
   img: `<button data-ed="img-view">🔍 크게 보기</button><button data-ed="img-del" class="del">🗑 사진 삭제</button>`,
 };
 function showBubble(ed, rect, at, mode = 'text') {
   const b = getBubble();
   b.editor = ed;
   if (b.dataset.mode !== mode) { b.dataset.mode = mode; b.innerHTML = BUBBLE[mode]; }
+  showHl(b);
   b.hidden = false;
   const w = b.offsetWidth || 240;
   const x = at ? at.x : rect.left + rect.width / 2;
   const y = at ? at.y : rect.top;
   b.style.left = Math.max(8, Math.min(innerWidth - w - 8, x - w / 2)) + 'px';
-  b.style.top = Math.max(8, (at ? y + 6 : y - 46)) + 'px';
+  // 메뉴가 위쪽에 들어갈 자리가 없으면 선택한 글자 아래에
+  const h = b.offsetHeight || 40;
+  let top = at ? y + 6 : y - h - 8;
+  if (!at && top < 8 && rect) top = rect.bottom + 8;
+  b.style.top = Math.max(8, top) + 'px';
 }
 function hideBubble() { if (bubble) bubble.hidden = true; }
+// 형광펜 버튼에 지금 쓰는 색을 보여 준다
+function showHl(root) { for (const m of root.querySelectorAll('.ed-mark')) { if (lastHl()) m.dataset.c = lastHl(); else delete m.dataset.c; } }
 let active = null;
 
 // host 안에 편집기를 만든다. onChange(md) 는 내용이 바뀔 때마다 호출
 export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
   let raw = lsGet(RAW_KEY, false);
-  host.innerHTML = `<div class="ed">${BAR}<div class="rich md big" contenteditable="true" data-ph="${esc(PLACEHOLDER)}" style="--rows:${rows}"></div><textarea class="input raw" rows="${rows}" hidden></textarea></div>`;
+  host.innerHTML = `<div class="ed">${BAR}<div class="ed-pop" hidden>${PALETTE}</div><div class="rich md big" contenteditable="true" data-ph="${esc(PLACEHOLDER)}" style="--rows:${rows}"></div><textarea class="input raw" rows="${rows}" hidden></textarea></div>`;
   const rich = host.querySelector('.rich');
   const ta = host.querySelector('.raw');
-  const ed = { rich, ta, host, cmd, syncPick, value: () => current(), focus: () => (raw ? ta : rich).focus() };
+  const pop = host.querySelector('.ed-pop');
+  showHl(host);
+  const ed = { rich, ta, host, cmd, syncPick, value: () => current(), focus };
+  // end: 커서를 글 맨 끝으로
+  function focus(end = false) {
+    (raw ? ta : rich).focus();
+    if (!end) return;
+    if (raw) ta.setSelectionRange(ta.value.length, ta.value.length);
+    else if (rich.lastElementChild) placeCaret(rich.lastElementChild, true);
+  }
   let picked = null; // 선택한 사진
   let last = md || '';
   const setRaw = (v) => {
@@ -178,6 +210,8 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
   });
 
   host.querySelector('.ed-bar').addEventListener('mousedown', (e) => { if (e.target.closest('button[data-ed]')) e.preventDefault(); });
+  pop.addEventListener('mousedown', (e) => e.preventDefault());
+  pop.addEventListener('click', (e) => { const b = e.target.closest('button[data-ed]'); if (b) { pop.hidden = true; cmd(b.dataset.ed); } });
   host.querySelector('.ed-bar').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-ed]');
     if (!b) return;
@@ -421,30 +455,77 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
     return r.toString().length === 0 && !r.cloneContents().querySelector?.('img');
   }
 
-  function wrapSel(tag) {
+  // 서식 종류: 형광펜(색) · 글자색 · 굵게
+  const FMT = {
+    mark: { sel: 'mark', make: (c) => { const m = document.createElement('mark'); if (c) m.dataset.c = c; return m; } },
+    tc: { sel: 'span.tc', make: (c) => { const t = document.createElement('span'); t.className = 'tc'; t.dataset.c = c; return t; } },
+    bold: { sel: 'b,strong', make: () => document.createElement('b') },
+  };
+  // color: 형광펜/글자색의 색 ('' = 기본 형광펜), null = 그 서식 지우기
+  function wrapSel(kind, color = '') {
     const s = getSelection();
     if (!s.rangeCount || s.isCollapsed || !rich.contains(s.anchorNode)) return;
+    const f = FMT[kind];
     const r = s.getRangeAt(0);
-    // 이미 같은 서식 안이면 풀기
-    const inside = (n) => { while (n && n !== rich) { if (n.tagName === tag) return n; n = n.parentNode; } return null; };
+    const off = color === null;
+    const inside = (n) => { while (n && n !== rich) { if (n.nodeType === 1 && n.matches(f.sel)) return n; n = n.parentNode; } return null; };
     const a = inside(r.startContainer), b = inside(r.endContainer);
-    if (a && a === b) { unwrap(a); return; }
+    if (a && a === b) {
+      // 이미 같은 서식 안: 같은 색이면 고른 부분만 풀고, 다른 색이면 고른 부분만 바꾼다
+      const was = a.dataset.c || '';
+      const nodes = liftOut(a, r);
+      if (kind !== 'bold' && !off && was !== color) wrapNodes(nodes, f.make(color));
+      else selectNodes(nodes);
+      return;
+    }
     const frag = r.extractContents();
-    frag.querySelectorAll(tag).forEach(unwrap);
+    frag.querySelectorAll(f.sel).forEach(unwrap);
     // 여러 줄에 걸치면 줄마다 따로 감싼다
-    const wrapEl = (nodes) => { const el = document.createElement(tag.toLowerCase()); nodes.forEach((x) => el.append(x)); return el; };
+    const wrapEl = (nodes) => { const el = f.make(color); nodes.forEach((x) => el.append(x)); return el; };
     if ([...frag.childNodes].some((c) => c.nodeType === 1 && c.tagName === 'DIV')) {
-      for (const d of frag.querySelectorAll(':scope > div')) d.replaceChildren(wrapEl([...d.childNodes]));
+      if (!off) for (const d of frag.querySelectorAll(':scope > div')) d.replaceChildren(wrapEl([...d.childNodes]));
       r.insertNode(frag);
       mergeAdjacent();
+    } else if (off) {
+      const nodes = [...frag.childNodes];
+      r.insertNode(frag);
+      selectNodes(nodes);
     } else {
       const el = wrapEl([...frag.childNodes]);
       r.insertNode(el);
-      s.removeAllRanges();
-      const nr = document.createRange();
-      nr.selectNodeContents(el);
-      s.addRange(nr);
+      selectNodes([el]);
     }
+  }
+  // 서식 a 안의 범위 r 만 a 밖으로 꺼낸다 (a 는 앞뒤 둘로 나뉜다). 꺼낸 노드들을 돌려준다
+  function liftOut(a, r) {
+    const anc = r.commonAncestorContainer;
+    let out = r.extractContents();
+    // a 와 범위 사이의 다른 서식(예: 굵게)은 꺼낸 쪽에도 남긴다
+    for (let n = anc; n && n !== a; n = n.parentNode) if (n.nodeType === 1) { const c = n.cloneNode(false); c.append(out); out = c; }
+    const tail = document.createRange();
+    tail.setStart(r.startContainer, r.startOffset);
+    tail.setEnd(a, a.childNodes.length);
+    const a2 = a.cloneNode(false);
+    a2.append(tail.extractContents());
+    a.after(a2);
+    const nodes = out.nodeType === 11 ? [...out.childNodes] : [out];
+    a2.before(...nodes);
+    for (const x of [a, a2]) if (!x.textContent && !x.querySelector('img')) x.remove();
+    return nodes;
+  }
+  function wrapNodes(nodes, el) {
+    nodes[0].before(el);
+    el.append(...nodes);
+    selectNodes([el]);
+  }
+  function selectNodes(nodes) {
+    if (!nodes.length) return;
+    const nr = document.createRange();
+    nr.setStartBefore(nodes[0]);
+    nr.setEndAfter(nodes[nodes.length - 1]);
+    const s = getSelection();
+    s.removeAllRanges();
+    s.addRange(nr);
   }
   function unwrap(el) { el.replaceWith(...el.childNodes); }
   function mergeAdjacent() {
@@ -473,9 +554,13 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
       // 텍스트 모드에서는 기호를 넣어 준다
       const { selectionStart: s, selectionEnd: e2, value: v } = ta;
       const sel = v.slice(s, e2) || '내용';
-      const wrapT = (l) => { ta.setRangeText(l + sel + l, s, e2, 'select'); };
+      const wrapT = (l, rt = l) => { ta.setRangeText(l + sel + rt, s, e2, 'select'); };
       const ls = v.lastIndexOf('\n', s - 1) + 1;
-      if (name === 'mark') wrapT('==');
+      if (name === 'palette') { pop.hidden = !pop.hidden; return; }
+      if (name.startsWith('hl:')) { lsSet(HL_KEY, name.slice(3)); showHl(host); }
+      const hl = name === 'mark' ? lastHl() : name.startsWith('hl:') ? name.slice(3) : null;
+      if (hl != null) wrapT(hl ? `=={${hl}}` : '==', '==');
+      else if (name.startsWith('tc:')) { if (name.slice(3)) wrapT(`{${name.slice(3)}}`, '{/}'); }
       else if (name === 'bold') wrapT('**');
       else if (name === 'list') ta.setRangeText('- ', ls, ls, 'end');
       else if (name === 'indent') ta.setRangeText('  ', ls, ls, 'end');
@@ -485,8 +570,11 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
     }
     rich.focus();
     if (!rich.children.length) { rich.innerHTML = '<div data-lv="0"><br></div>'; placeCaret(rich.firstChild, true); }
-    if (name === 'mark') wrapSel('MARK');
-    else if (name === 'bold') wrapSel('B');
+    if (name === 'palette') { pop.hidden = !pop.hidden; return; }
+    if (name === 'mark') wrapSel('mark', lastHl());
+    else if (name.startsWith('hl:')) { lsSet(HL_KEY, name.slice(3)); showHl(host); wrapSel('mark', name.slice(3)); }
+    else if (name.startsWith('tc:')) wrapSel('tc', name.slice(3) || null);
+    else if (name === 'bold') wrapSel('bold');
     else if (name === 'clear') {
       const s = getSelection();
       if (!s.isCollapsed) {
@@ -495,7 +583,7 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
         r.deleteContents();
         r.insertNode(document.createTextNode(t));
       }
-      for (const b of blocks()) b.querySelectorAll('mark,b,strong').forEach((m) => { if (getSelection().containsNode(m, true)) unwrap(m); });
+      for (const b of blocks()) b.querySelectorAll('mark,b,strong,span.tc').forEach((m) => { if (getSelection().containsNode(m, true)) unwrap(m); });
     } else if (name === 'list') {
       const bs = blocks();
       const on = bs.every((b) => b.dataset.li === '1');

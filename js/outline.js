@@ -320,6 +320,16 @@ function openDetail(id) {
   select(id, { open: true });
 }
 
+// 외울 것을 펼쳐 편집 모드로, 커서는 글 끝에
+function editNote(id) {
+  openDetail(id);
+  setNoteOpen(true);
+  modeFor = id;
+  preview = false;
+  renderDetail();
+  noteEd?.focus(true);
+}
+
 function onListClick(e) {
   const nt = e.target.closest('[data-note]');
   if (nt) return openDetail(nt.dataset.note);
@@ -466,6 +476,8 @@ function onKey(e) {
       e.preventDefault();
       if (e.altKey) return structural(() => { const np = S.indent(sel); if (np) { collapsed.delete(np); saveCollapsed(); } });
       if (S.children(sel).length && collapsed.has(sel)) return toggle(sel, true);
+      // 하위가 없는(토글 없는) 갈래 → 바로 외울 것 쓰기 (Esc 로 목록에 돌아옴)
+      if (!S.children(sel).length) return editNote(sel);
       return go(i + 1);
     case 'F2': case 'Enter':
       e.preventDefault();
@@ -587,6 +599,14 @@ function renderDetail() {
   const host = $('.d-note-host', det);
   const id = sel;
   noteEd = host ? Ed.mount(host, n.note || '', (v) => { saveState('dirty'); saveNote(id, v); }, { rows: 16, onSave: () => saveNow(true) }) : null;
+  // 외울 것에서 Esc → 저장하고 목록의 그 줄로 (키보드로 계속 이동)
+  host?.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.defaultPrevented || composing(e)) return;
+    e.preventDefault();
+    flushDetail();
+    saveState('saved');
+    focusList(id);
+  });
 }
 
 // 접힌 외울 것: 버튼 한 줄 (내용이 있는지 한눈에)

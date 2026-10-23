@@ -800,3 +800,60 @@ html { touch-action: pan-x pan-y; }
 .d-opt span { display: flex; flex-direction: column; gap: 2px; }
 .d-opt b { font-size: 14px; font-weight: 600; }
 .d-opt small { color: var(--muted); font-size: 12.5px; }
+
+/* ---------- 형광펜 색 · 글자색 ---------- */
+:root {
+  --hl-green: rgba(52, 199, 89, .3); --hl-blue: rgba(0, 122, 255, .2); --hl-pink: rgba(255, 45, 85, .2); --hl-orange: rgba(255, 149, 0, .3); --hl-purple: rgba(175, 82, 222, .22);
+  --tc-red: #e5281f; --tc-blue: #0066d6; --tc-green: #1f9d45; --tc-orange: #d97300; --tc-purple: #9a3fcc; --tc-gray: #8e8e93;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --hl-green: rgba(48, 209, 88, .3); --hl-blue: rgba(10, 132, 255, .32); --hl-pink: rgba(255, 55, 95, .32); --hl-orange: rgba(255, 159, 10, .32); --hl-purple: rgba(191, 90, 242, .32);
+    --tc-red: #ff6961; --tc-blue: #5eb0ff; --tc-green: #4cd964; --tc-orange: #ffb340; --tc-purple: #da8fff; --tc-gray: #a1a1a6;
+  }
+}
+:root[data-theme="dark"] {
+  --hl-green: rgba(48, 209, 88, .3); --hl-blue: rgba(10, 132, 255, .32); --hl-pink: rgba(255, 55, 95, .32); --hl-orange: rgba(255, 159, 10, .32); --hl-purple: rgba(191, 90, 242, .32);
+  --tc-red: #ff6961; --tc-blue: #5eb0ff; --tc-green: #4cd964; --tc-orange: #ffb340; --tc-purple: #da8fff; --tc-gray: #a1a1a6;
+}
+[data-c="green"] { --hlc: var(--hl-green); --tcc: var(--tc-green); }
+[data-c="blue"] { --hlc: var(--hl-blue); --tcc: var(--tc-blue); }
+[data-c="pink"] { --hlc: var(--hl-pink); }
+[data-c="orange"] { --hlc: var(--hl-orange); --tcc: var(--tc-orange); }
+[data-c="purple"] { --hlc: var(--hl-purple); --tcc: var(--tc-purple); }
+[data-c="red"] { --tcc: var(--tc-red); }
+[data-c="gray"] { --tcc: var(--tc-gray); }
+.md mark[data-c], .rich mark[data-c], .ed-mark[data-c] { background: var(--hlc, var(--mark)); }
+.tc { color: var(--tcc, inherit); }
+.ed-pop { align-self: flex-start; padding: 8px 12px; border-radius: 12px; background: var(--bg3); }
+.cp-box { display: flex; flex-direction: column; gap: 6px; }
+.cp-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cp-l { font-size: 12px; color: var(--muted); min-width: 3.4em; }
+.cp { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line2); padding: 0; cursor: pointer; display: inline-grid; place-items: center; font-size: 14px; font-weight: 700; background: var(--card); color: var(--text); }
+.cp.hl { background: var(--hlc, var(--mark)); }
+.cp.hl:not([data-c=""]) { background: linear-gradient(var(--hlc), var(--hlc)), var(--card); }
+.cp.hl[data-c=""] { background: linear-gradient(var(--mark), var(--mark)), var(--card); }
+.cp.tx { color: var(--tcc, var(--text)); }
+.cp:hover { transform: scale(1.1); }
+.ed-bubble[data-mode="text"] { flex-direction: column; gap: 4px; padding: 6px; }
+.ed-bubble .bb-row { display: flex; gap: 2px; }
+.ed-bubble .cp-box { padding: 0 4px 2px; }
+.ed-bubble .cp-l { color: #aeaeb2; }
+.ed-bubble button.cp { width: 26px; height: 26px; padding: 0; border-radius: 50%; border: 1px solid rgba(255,255,255,.18); font-size: 13px; }
+.ed-bubble button.cp.hl { background: linear-gradient(var(--hlc, var(--mark)), var(--hlc, var(--mark))), #f5f5f7; }
+.ed-bubble button.cp.tx { background: #f5f5f7; color: var(--tcc, #1d1d1f); }
+/* 메뉴의 색 견본은 흰 바탕이라 밝은 테마 색으로 */
+.ed-bubble {
+  --mark: rgba(255, 204, 0, .38);
+  --hl-green: rgba(52, 199, 89, .3); --hl-blue: rgba(0, 122, 255, .2); --hl-pink: rgba(255, 45, 85, .2); --hl-orange: rgba(255, 149, 0, .3); --hl-purple: rgba(175, 82, 222, .22);
+  --tc-red: #e5281f; --tc-blue: #0066d6; --tc-green: #1f9d45; --tc-orange: #d97300; --tc-purple: #9a3fcc; --tc-gray: #8e8e93;
+}
+
+/* ---------- 카드 학습: 함께 학습 · 모아 보기 ---------- */
+.together .chips { margin-top: 4px; }
+.together .chip.fixed { background: var(--accent-2); color: var(--accent); }
+.together .chip button { border: 0; background: none; color: var(--muted); padding: 0 0 0 2px; font-size: 12px; cursor: pointer; }
+.together .chip button:hover { color: var(--r1); }
+.together p { margin: 8px 0 0; }
+.set-ic.star { background: rgba(255, 204, 0, .18); color: #e0a800; }
+.set-ic.unknown { background: var(--r1bg); color: var(--r1); }

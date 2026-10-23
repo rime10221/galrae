@@ -138,6 +138,38 @@ const H = `
     click($('.detail [data-act="save"]')); await sleep(50);
     out.saveBtn = S.node(gdm).note.includes('즉시') && !!$('.detail .note-view');
     click($('.detail [data-act="edit"]')); await sleep(30);
+    // 🎨 색: 형광펜 색 · 글자색, 이미 칠한 곳 일부만 다른 색으로, 형광펜 버튼은 마지막 색
+    {
+      const rc = $('.d-note-host .rich');
+      rc.insertAdjacentHTML('beforeend', '<div data-lv="0">분홍 빨강 기본</div>'); rc.dispatchEvent(new Event('input', { bubbles: true }));
+      const ln = rc.lastElementChild;
+      const sel = (w) => {
+        const w2 = document.createTreeWalker(ln, NodeFilter.SHOW_TEXT);
+        let tn; while ((tn = w2.nextNode()) && !tn.nodeValue.includes(w));
+        const i = tn.nodeValue.indexOf(w), rg = document.createRange();
+        rg.setStart(tn, i); rg.setEnd(tn, i + w.length);
+        getSelection().removeAllRanges(); getSelection().addRange(rg);
+      };
+      sel('분홍'); click($('.d-note-host .ed-bar [data-ed="palette"]'));
+      const popOpen = !$('.d-note-host .ed-pop').hidden;
+      click($('.d-note-host .ed-pop [data-ed="hl:pink"]'));
+      sel('분'); click($('.d-note-host .ed-pop [data-ed="hl:green"]'));
+      sel('빨강'); click($('.d-note-host .ed-pop [data-ed="tc:red"]'));
+      sel('기본'); click($('.d-note-host .ed-bar [data-ed="mark"]'));
+      await sleep(800);
+      const nt = S.node(gdm).note;
+      out.colors = popOpen && nt.includes('=={green}분===={pink}홍==') && nt.includes('{red}빨강{/}') && nt.includes('=={green}기본==');
+      sel('빨강'); click($('.d-note-host .ed-pop [data-ed="tc:"]')); await sleep(800);
+      out.colorOff = !S.node(gdm).note.includes('{red}') && S.node(gdm).note.includes(' 빨강 ');
+      click($('.detail [data-act="save"]')); await sleep(50);
+      out.colorView = !!$('.detail .note-view mark[data-c="pink"]') && !!$('.detail .note-view mark[data-c="green"]') && getComputedStyle($('.detail .note-view mark[data-c="green"]')).backgroundColor !== getComputedStyle($('.detail .note-view mark:not([data-c])')).backgroundColor;
+      S.updateNode(gdm, { note: S.node(gdm).note + '\n{blue}파랑 글자{/}' });
+      await sleep(50);
+      out.colorView = out.colorView && !!$('.detail .note-view .tc[data-c="blue"]');
+      click($('.detail [data-act="edit"]')); await sleep(30);
+      out.colorView = out.colorView && !!$('.d-note-host .rich span.tc[data-c="blue"]') && !!$('.d-note-host .rich mark[data-c="pink"]');
+      localStorage.removeItem('galrae.v1.hlColor');
+    }
     const im = S.importOutline('# 내과\n## 순환기\n- 심부전\n\t> - BNP\n\t? 호흡곤란\n- 부정맥', null);
     const im2 = S.importOutline('# 내과\n## 순환기\n- 심부전\n- 판막', null);
     out.import = im.added === 4 && im2.added === 1 && im2.merged === 3;
@@ -351,6 +383,61 @@ const H = `
     const pid = S.savePreset('테스트 세트', { scope: [S.findByTitle('임신과 당뇨병'), S.findByTitle('임신과 감염질환')], levels: [] });
     await go('#train/set:' + pid);
     out.preset = $('.set-h h1')?.textContent === '테스트 세트' && $$('.term-row').length === 3;
+    // 정리: 하위 없는 갈래에서 → 키 = 바로 외울 것 쓰기, Esc = 목록으로
+    {
+      const leaf = S.findByTitle('임신의 진단'), par = S.findByTitle('정상 임신과 산전 관리');
+      await go('#tree/' + leaf); await sleep(60);
+      $('#olist').focus(); key($('#olist'), 'ArrowRight'); await sleep(60);
+      const inNote = document.activeElement === $('.d-note-host .rich');
+      document.execCommand('insertText', false, '오른쪽 키로 쓰기'); await sleep(50);
+      key(document.activeElement, 'Escape'); await sleep(60);
+      out.rightNote = inNote && S.node(leaf).note.includes('오른쪽 키로 쓰기') && document.activeElement === $('#olist');
+      // 하위가 있는 갈래는 그대로 펼치기 / 아래로
+      key($('#olist'), 'ArrowUp'); await sleep(40);
+      out.rightNote = out.rightNote && $('.orow.sel')?.dataset.id === par;
+      key($('#olist'), 'ArrowRight'); await sleep(40);
+      out.rightNote = out.rightNote && $('.orow.sel')?.dataset.id === leaf && document.activeElement === $('#olist');
+      S.updateNode(leaf, { note: '' });
+    }
+    // 함께 학습: 대단원 세트에 같은 과목의 다른 갈래를 더하기
+    {
+      const a = S.findByTitle('임신의 내외과적 질환'), b = S.findByTitle('정상 임신과 산전 관리');
+      S.updateNode(S.findByTitle('산전 진찰'), { note: '- 함께 학습 테스트' });
+      await go('#train/' + a);
+      const before = $$('.term-row').length;
+      click($('#view-train [data-act="add-ranges"]')); await sleep(40);
+      const dlg = $$("dialog").pop();
+      const fixedLocked = dlg.querySelector(`input[data-s="${a}"]`)?.disabled;
+      dlg.querySelector(`input[data-s="${b}"]`).click(); await sleep(20);
+      click(dlg.querySelector('#psOk')); await sleep(40);
+      const added = S.children(b).filter((k) => (S.node(k).note || '').trim() || S.children(k).length).length;
+      const withB = $$('.term-row').length;
+      out.together = fixedLocked && $('.set-h h1').textContent.includes('외 1') && withB === before + added && $$('.together .chip').length === 2;
+      click($('#view-train [data-act="start"]')); await sleep(40);
+      const cf = $$('dialog').pop()?.querySelector('[data-close="ok"]'); if (cf) { click(cf); await sleep(60); }
+      const cards = JSON.parse(localStorage.getItem('galrae.v2.session')).cards;
+      out.together = out.together && cards.length === withB && cards.some((x) => S.parentOf(x) === b);
+      click($('#view-train [data-act="quit"]')); await sleep(40);
+      click($(`#view-train [data-rmextra="${b}"]`)); await sleep(20);
+      out.together = out.together && $$('.term-row').length === before && !$('.set-h h1').textContent.includes('외 1');
+    }
+    // 모아 보기: 별표 · 모르는 카드
+    {
+      const st = S.findByTitle('임신과 감염질환'), un = S.findByTitle('임신과 당뇨병');
+      S.updateNode(st, { star: true });
+      S.rate(un + '|card', 1); S.rate(st + '|card', 3);
+      await go('#train/list');
+      const rows = $$('#view-train [data-special]');
+      out.special = rows.length === 2;
+      await go('#train/star');
+      out.special = out.special && $('.set-h h1').textContent.includes('별표') && $$('.term-row').some((r) => r.dataset.open === st) && $$('.term-row').every((r) => S.node(r.dataset.open).star);
+      await go('#train/unknown');
+      const unIds = $$('.term-row').map((r) => r.dataset.open);
+      out.special = out.special && unIds.includes(un) && !unIds.includes(st);
+      S.rate(un + '|card', 3); await go('#train/unknown');
+      out.special = out.special && !$$('.term-row').some((r) => r.dataset.open === un);
+      S.updateNode(st, { star: false });
+    }
     // 마인드맵 노트 카드: 외울 것이 크게, 바로 편집
     await go('#graph/' + gdm);
     await sleep(300);
@@ -423,6 +510,9 @@ const H = `
   ok('편집기: 입력 저장', r.noteSaved);
   ok('편집기: 선택 후 형광펜 버튼', r.markBtn);
   ok('편집기: 목록 버튼', r.listBtn);
+  ok('편집기: 색 형광펜 · 글자색 · 일부만 색 바꾸기', r.colors);
+  ok('편집기: 글자색 지우기', r.colorOff);
+  ok('편집기: 색이 읽기 화면·편집기에 보임', r.colorView);
   ok('편집기: 저장 버튼(즉시 저장 후 읽기 화면)', r.saveBtn);
   ok('텍스트 가져오기 + 합치기', r.import);
   ok('정리: 외울 것 토글(기본 접힘·모두 펼치기·하나 접기)', r.inlineNotes);
@@ -452,6 +542,9 @@ const H = `
   ok('카드: 모르는 것만 다시', r.retry);
   ok('카드: 되돌리기', r.undo);
   ok('내 세트: 여러 범위 묶기', r.preset);
+  ok('정리: 하위 없는 갈래에서 → 는 외울 것 쓰기, Esc 로 목록', r.rightNote);
+  ok('카드: 같은 과목의 다른 갈래와 함께 학습', r.together);
+  ok('카드: 모아 보기(별표 · 모르는 카드)', r.special);
   ok('마인드맵: 노트 카드', r.noteCard);
   ok('마인드맵: 노트 카드에서 편집', r.graphEdit);
   ok('마인드맵: 누르면 하위 펼치기/다시 누르면 접기', r.mapToggle);

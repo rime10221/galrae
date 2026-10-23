@@ -47,23 +47,49 @@ function scopeIds(scope) {
 
 function cardsIn(scope) { return scopeIds(scope).filter(hasBack); }
 
-function levelCounts(scope) {
+// 몰라요로 고르고 아직 알아요로 바꾸지 않은 카드
+const isUnknown = (id) => S.prog(PKEY(id))?.b === 0;
+const SPECIAL = {
+  star: { title: '★ 별표한 카드', icon: '★', test: (x) => !!S.node(x).star, empty: '카드나 카드 목록에서 ★를 누르면 여기에 모여요.' },
+  unknown: { title: '모르는 카드', icon: '✕', test: isUnknown, empty: '알아요 · 몰라요로 학습하다 「몰라요」를 고른 카드가 여기에 모여요. 알아요로 맞히면 빠져요.' },
+};
+const specialCards = (k, scope = []) => cardsIn(scope).filter(SPECIAL[k].test);
+
+// 세트에 들어가는 카드 (모아 보기 세트는 별표/모르는 카드만)
+function setCards(set) {
+  const ids = cardsIn(set.scope);
+  return set.special ? ids.filter(SPECIAL[set.special].test) : ids;
+}
+
+function levelCounts(ids) {
   const m = new Map();
-  for (const x of cardsIn(scope)) m.set(S.depth(x), (m.get(S.depth(x)) || 0) + 1);
+  for (const x of ids) m.set(S.depth(x), (m.get(S.depth(x)) || 0) + 1);
   return m;
 }
 
-function buildDeck(cfg) {
-  let ids = cardsIn(cfg.scope);
+function buildDeck(set, cfg) {
+  let ids = setCards(set);
   if (cfg.levels?.length) ids = ids.filter((x) => cfg.levels.includes(S.depth(x)));
   if (cfg.star) ids = ids.filter((x) => S.node(x).star);
   if (cfg.unknownOnly) ids = ids.filter((x) => { const p = S.prog(PKEY(x)); return !p || p.b <= 1; });
   return cfg.shuffle ? shuffle(ids) : ids;
 }
 
+// 갈래 세트에 같은 과목의 다른 갈래를 더해 함께 학습 (세트마다 기억)
+const subjectOf = (id) => S.path(id)[0]?.id;
+function extrasFor(n) {
+  const sub = subjectOf(n.id);
+  return (setPrefs()[n.id]?.extra || []).filter((x) => S.node(x) && x !== n.id && subjectOf(x) === sub && !S.isAncestor(x, n.id) && !S.isAncestor(n.id, x));
+}
+
 // 현재 보고 있는 세트의 설정
 function currentSet() {
   if (!view) return null;
+  if (view.special) {
+    const k = view.special;
+    const subj = setPrefs()['s:' + k]?.subj;
+    return { key: 's:' + k, title: SPECIAL[k].title, scope: subj && S.node(subj) ? [subj] : [], special: k, subj: subj && S.node(subj) ? subj : null };
+  }
   if (view.preset) {
     const p = S.preset(view.preset);
     if (!p) return null;
@@ -71,32 +97,40 @@ function currentSet() {
   }
   const n = S.node(view.node);
   if (!n) return null;
-  return { key: n.id, title: n.title || '제목 없음', scope: [n.id], node: n };
+  const extra = extrasFor(n);
+  return { key: n.id, title: (n.title || '제목 없음') + (extra.length ? ` 외 ${extra.length}` : ''), scope: [n.id, ...extra], node: n, extra };
 }
 
 function prefsFor(set) {
   const saved = setPrefs()[set.key];
-  const counts = levelCounts(set.scope);
+  const counts = levelCounts(setCards(set));
   const avail = [...counts.keys()].sort((a, b) => a - b);
   let levels = saved?.levels?.filter((d) => counts.has(d));
   if (!levels) {
-    // 처음 열면: 노드 세트는 바로 아래 레벨, 내 세트는 저장된 레벨
-    if (set.preset) levels = (set.preset.opts.levels || []).filter((d) => counts.has(d));
+    // 처음 열면: 노드 세트는 바로 아래 레벨, 내 세트는 저장된 레벨, 모아 보기는 전부
+    if (set.special) levels = [];
+    else if (set.preset) levels = (set.preset.opts.levels || []).filter((d) => counts.has(d));
     else { const d = S.depth(set.node.id) + 1; levels = counts.has(d) ? [d] : []; }
   }
   return { levels, shuffle: saved?.shuffle ?? true, star: saved?.star ?? false, unknownOnly: saved?.unknownOnly ?? false, avail, counts };
 }
 
 function savePrefs(set, p) {
-  const all = { ...setPrefs(), [set.key]: { levels: p.levels, shuffle: p.shuffle, star: p.star, unknownOnly: p.unknownOnly } };
+  const all = { ...setPrefs(), [set.key]: { ...setPrefs()[set.key], levels: p.levels, shuffle: p.shuffle, star: p.star, unknownOnly: p.unknownOnly } };
   S.saveSettings({ setPrefs: all });
   if (set.preset) S.savePreset(set.preset.name, { ...set.preset.opts, levels: p.levels }, set.preset.id);
 }
 
+// 세트별 기억(함께 학습할 갈래, 모아 보기의 과목 등)만 바꾼다
+function patchPrefs(key, patch) {
+  S.saveSettings({ setPrefs: { ...setPrefs(), [key]: { ...setPrefs()[key], ...patch } } });
+}
+
 // ---------- 화면 전환 ----------
-// param: undefined → 목록(진행 중 학습이 있으면 카드), 'list' → 목록, 노드 id, 'set:<프리셋 id>'
+// param: undefined → 목록(진행 중 학습이 있으면 카드), 'list' → 목록, 노드 id, 'set:<프리셋 id>', 'star' · 'unknown' → 모아 보기
 export function show(param) {
   if (param === 'list') view = null;
+  else if (Object.hasOwn(SPECIAL, param || '')) view = { special: param };
   else if (param?.startsWith('set:')) view = { preset: param.slice(4) };
   else if (param && S.node(param)) view = { node: param };
   else if (!hasSession()) view = view && currentSet() ? view : null;
@@ -142,6 +176,10 @@ function renderLibrary() {
       }).join('')}</div>` : '<p class="muted small lib-empty">여러 범위를 묶어 나만의 세트를 만들 수 있어요. 예) 산과 내과질환 + 감염 파트</p>'}
     </section>
     <section class="lib-sec">
+      <div class="panel-h"><h3>모아 보기</h3></div>
+      <div class="set-list">${Object.entries(SPECIAL).map(([k, x]) => `<button class="set-row" data-special="${k}"><span class="set-ic ${k}">${x.icon}</span><span class="set-main"><b>${x.title}</b><small>모든 과목 · 세트 안에서 과목을 고를 수 있어요</small></span><em>${specialCards(k).length}장</em></button>`).join('')}</div>
+    </section>
+    <section class="lib-sec">
       <div class="panel-h"><h3>갈래 세트</h3></div>
       <div id="libTabs"></div>
       <input class="input search" id="libSearch" placeholder="세트 찾기 (모든 과목)" type="search" value="${esc(libQuery)}">
@@ -182,8 +220,10 @@ function renderLibraryList() {
 function renderSet() {
   const set = currentSet();
   const p = prefsFor(set);
-  const deck = buildDeck({ scope: set.scope, ...p, shuffle: false });
-  const crumbs = set.node ? S.path(set.node.id).slice(0, -1).map((x) => esc(x.title)).join(' <i>›</i> ') : '내 세트';
+  const deck = buildDeck(set, { ...p, shuffle: false });
+  const crumbs = set.node ? S.path(set.node.id).slice(0, -1).map((x) => esc(x.title)).join(' <i>›</i> ') : set.special ? '모아 보기' : '내 세트';
+  const sub = set.node && S.parentOf(set.node.id) ? S.node(subjectOf(set.node.id)) : null;
+  const chip = (id, rm) => `<span class="chip ${rm ? '' : 'fixed'}"><span>${esc(S.node(id).title || '제목 없음')}</span><small>${cardsIn([id]).length}장</small>${rm ? `<button data-rmextra="${id}" title="빼기" aria-label="빼기">✕</button>` : ''}</span>`;
   el.innerHTML = `<div class="page narrow">
     <button class="back-link" data-act="list">‹ 세트 목록</button>
     <header class="set-h">
@@ -191,6 +231,16 @@ function renderSet() {
       <h1>${esc(set.title)}</h1>
       ${set.preset ? `<p class="sub">${esc((set.scope || []).map((x) => S.node(x)?.title).filter(Boolean).join(' · ') || '전체')}</p>` : ''}
     </header>
+    ${sub ? `<section class="panel together">
+      <div class="panel-h"><h3>함께 학습</h3><button class="link" data-act="add-ranges">+ 갈래 더하기</button></div>
+      <div class="chips">${chip(set.node.id, false)}${set.extra.map((x) => chip(x, true)).join('')}</div>
+      ${set.extra.length ? '' : `<p class="muted small">「${esc(sub.title)}」 안의 다른 대단원·중단원… 갈래를 여러 개 골라 이 세트와 한꺼번에 외울 수 있어요.</p>`}
+    </section>` : ''}
+    ${set.special ? `<section class="panel">
+      <div class="panel-h"><h3>과목</h3></div>
+      <div class="chips">${[null, ...S.roots()].map((r) => ({ r, n: specialCards(set.special, r ? [r] : []).length })).filter((x) => !x.r || x.n || x.r === set.subj)
+        .map(({ r, n }) => `<button class="chip pick ${(set.subj || null) === r ? 'on' : ''}" data-subjf="${r || ''}"><span>${r ? esc(S.node(r).title || '제목 없음') : '전체'}</span><small>${n}</small></button>`).join('')}</div>
+    </section>` : ''}
     <section class="panel">
       <div class="panel-h"><h3>레벨</h3><span class="muted small">여러 개 선택 가능 · 안 고르면 전부</span></div>
       <div class="level-list">${p.avail.map((d) => `<button class="level-btn ${p.levels.includes(d) ? 'on' : ''}" data-level="${d}">
@@ -198,13 +248,13 @@ function renderSet() {
       <div class="kv mode-pick"><span>학습 방식</span><div class="seg" data-seg="cardMode"><button class="${cardMode() === 'browse' ? 'on' : ''}" data-v="browse">넘기며 외우기</button><button class="${cardMode() === 'test' ? 'on' : ''}" data-v="test">알아요 · 몰라요</button></div></div>
       <p class="muted small mode-desc">${cardMode() === 'browse' ? '좌우로 넘기기만 해요. 진도(숙련도)에는 기록되지 않아요.' : '카드마다 알아요/몰라요를 골라요. 진도에 기록되고, 끝나면 모르는 카드만 다시 볼 수 있어요.'}</p>
       <label class="check"><span>카드 섞기</span><input type="checkbox" data-pref="shuffle" ${p.shuffle ? 'checked' : ''}></label>
-      <label class="check"><span>★ 별표한 카드만</span><input type="checkbox" data-pref="star" ${p.star ? 'checked' : ''}></label>
-      <label class="check"><span>모르는 카드만</span><input type="checkbox" data-pref="unknownOnly" ${p.unknownOnly ? 'checked' : ''}></label>
+      ${set.special === 'star' ? '' : `<label class="check"><span>★ 별표한 카드만</span><input type="checkbox" data-pref="star" ${p.star ? 'checked' : ''}></label>`}
+      ${set.special === 'unknown' ? '' : `<label class="check"><span>모르는 카드만</span><input type="checkbox" data-pref="unknownOnly" ${p.unknownOnly ? 'checked' : ''}></label>`}
     </section>
     <div class="start-bar">
       ${set.preset
         ? '<button class="btn ghost small" data-act="edit-preset">범위 편집</button><button class="btn ghost small" data-act="rename-preset">이름</button><button class="btn ghost small danger" data-act="del-preset">삭제</button>'
-        : '<button class="btn ghost small" data-act="save-preset">☆<span class="lbl"> 내 세트로</span></button>'}
+        : set.special ? '' : '<button class="btn ghost small" data-act="save-preset">☆<span class="lbl"> 내 세트로</span></button>'}
       <button class="btn primary big" data-act="start" ${deck.length ? '' : 'disabled'}>${deck.length}장 ${cardMode() === 'browse' ? '외우기' : '테스트'}</button>
     </div>
     <section class="lib-sec">
@@ -219,33 +269,36 @@ function renderSet() {
           <span class="term-st ${pr ? (pr.b >= 2 ? 'ok' : 'ng') : ''}"></span>
           <button class="star ${n.star ? 'on' : ''}" data-star="${id}" title="별표">★</button>
         </div>`;
-      }).join('') || '<p class="muted small">이 조건에 맞는 카드가 없어요</p>'}</div>
+      }).join('') || `<p class="muted small">${set.special && !setCards(set).length ? SPECIAL[set.special].empty : '이 조건에 맞는 카드가 없어요'}</p>`}</div>
     </section>
   </div>`;
 }
 
 // 여러 범위 고르기 (내 세트)
-function pickRanges(initial = [], name = '') {
+// opt.roots: 이 갈래들 아래에서만 고르기, opt.fixed: 늘 들어가는 갈래(바꿀 수 없음), opt.named: 세트 이름 칸
+function pickRanges(initial = [], name = '', { roots = S.roots(), fixed = null, named = true, title } = {}) {
   const sel = new Set(initial);
-  const open = new Set(initial.flatMap((x) => S.path(x).slice(0, -1).map((n) => n.id)));
+  const open = new Set([...initial, ...(fixed ? [fixed] : [])].flatMap((x) => S.path(x).slice(0, -1).map((n) => n.id)));
+  if (fixed) roots.forEach((r) => open.add(r));
   const tree = () => {
     const rows = [];
     const walk = (id, d, implied) => {
       const kids = S.children(id).filter((k) => cardsIn([k]).length);
-      const on = sel.has(id);
+      const on = sel.has(id) || id === fixed;
+      const lock = implied || id === fixed;
       rows.push(`<div class="srow" style="--d:${d}">
         ${kids.length ? `<button class="caret ${open.has(id) ? 'open' : ''}" data-o="${id}"></button>` : '<span class="caret leaf"></span>'}
-        <label class="${implied ? 'implied' : ''}"><input type="checkbox" data-s="${id}" ${on || implied ? 'checked' : ''} ${implied ? 'disabled' : ''}><span>${esc(S.node(id).title || '제목 없음')}</span></label>
+        <label class="${lock ? 'implied' : ''}"><input type="checkbox" data-s="${id}" ${on || implied ? 'checked' : ''} ${lock ? 'disabled' : ''}><span>${esc(S.node(id).title || '제목 없음')}${id === fixed ? ' <small class="muted">(이 세트)</small>' : ''}</span></label>
         <small class="muted">${cardsIn([id]).length}장</small></div>`);
       if (open.has(id)) for (const k of kids) walk(k, d + 1, implied || on);
     };
-    S.roots().forEach((r) => walk(r, 0, false));
+    roots.forEach((r) => walk(r, 0, false));
     return rows.join('');
   };
   return openDialog(`<div class="dlg-body">
-    <p class="dlg-msg">${name ? '세트 범위 편집' : '새 세트'}</p>
-    <input class="input" id="psName" placeholder="세트 이름 (예: 산과 내과질환)" value="${esc(name)}">
-    <p class="muted small">묶을 갈래를 고르세요. 고른 갈래 아래 전체가 세트에 들어가요.</p>
+    <p class="dlg-msg">${esc(title || (name ? '세트 범위 편집' : '새 세트'))}</p>
+    ${named ? `<input class="input" id="psName" placeholder="세트 이름 (예: 산과 내과질환)" value="${esc(name)}">` : ''}
+    <p class="muted small">${named ? '묶을 갈래를 고르세요.' : '함께 외울 갈래를 여러 개 고르세요.'} 고른 갈래 아래 전체가 세트에 들어가요.</p>
     <div class="scope-tree tall" id="psTree">${tree()}</div>
     <div class="dlg-actions"><button class="btn ghost" data-close="">취소</button><button class="btn primary" id="psOk">저장</button></div></div>`, {
     onMount(d, close) {
@@ -256,17 +309,19 @@ function pickRanges(initial = [], name = '') {
         const c = e.target.closest('input[data-s]');
         if (c) {
           const id = c.dataset.s;
+          // 이 세트를 감싸는 갈래는 고를 수 없다 (그 갈래 세트를 열면 된다)
+          if (fixed && c.checked && S.isAncestor(id, fixed)) { toast('이 세트를 포함하는 갈래는 그 갈래 세트를 열어 학습해 주세요'); box.innerHTML = tree(); return; }
           if (c.checked) { for (const x of [...sel]) if (S.isAncestor(id, x)) sel.delete(x); sel.add(id); } else sel.delete(id);
           box.innerHTML = tree();
         }
       });
       d.querySelector('#psOk').onclick = () => {
-        const nm = d.querySelector('#psName').value.trim();
-        if (!nm) return d.querySelector('#psName').focus();
-        if (!sel.size) return toast('범위를 하나 이상 골라 주세요');
+        const nm = named ? d.querySelector('#psName').value.trim() : '';
+        if (named && !nm) return d.querySelector('#psName').focus();
+        if (named && !sel.size) return toast('범위를 하나 이상 골라 주세요');
         close({ name: nm, scope: [...sel] });
       };
-      if (!name) d.querySelector('#psName').focus();
+      if (named && !name) d.querySelector('#psName').focus();
     },
   });
 }
@@ -413,7 +468,7 @@ function backToSet() {
 async function startFromSet() {
   const set = currentSet();
   const p = prefsFor(set);
-  const cards = buildDeck({ scope: set.scope, ...p });
+  const cards = buildDeck(set, p);
   if (!cards.length) return toast('카드가 없어요');
   if (hasSession() && !browsing() && session.hist.length && !(await confirmDlg('진행 중인 학습을 닫고 새로 시작할까요?', { ok: '새로 시작' }))) return;
   const lv = p.levels.length ? ' · ' + p.levels.map((d) => S.levelName(d)).join(', ') : '';
@@ -435,7 +490,7 @@ async function onClick(e) {
   if (t.matches('input[data-pref]')) return updatePref((p) => { p[t.dataset.pref] = t.checked; });
   const tab = t.closest('[data-subject]');
   if (tab) { Subject.set(tab.dataset.subject); return renderLibraryList(); }
-  const b = t.closest('[data-act],[data-level],[data-judge],[data-node],[data-preset],[data-libopen],[data-star],[data-open]');
+  const b = t.closest('[data-act],[data-level],[data-judge],[data-node],[data-preset],[data-special],[data-subjf],[data-rmextra],[data-libopen],[data-star],[data-open]');
   if (!b) {
     if (t.closest('#flash') && !t.closest('a,button')) flip();
     return;
@@ -453,6 +508,9 @@ async function onClick(e) {
   }
   if (b.dataset.node) return api.go('train', b.dataset.node);
   if (b.dataset.preset) return api.go('train', 'set:' + b.dataset.preset);
+  if (b.dataset.special) return api.go('train', b.dataset.special);
+  if ('subjf' in b.dataset) { patchPrefs(currentSet().key, { subj: b.dataset.subjf || null }); return renderSet(); }
+  if (b.dataset.rmextra) { const set = currentSet(); patchPrefs(set.key, { extra: set.extra.filter((x) => x !== b.dataset.rmextra) }); return renderSet(); }
   if (b.dataset.star) {
     const id = b.dataset.star;
     S.as('train', () => S.updateNode(id, { star: !S.node(id).star }));
@@ -483,6 +541,14 @@ async function onClick(e) {
       if (!r) return;
       const id = S.savePreset(r.name, { scope: r.scope, levels: [] });
       return api.go('train', 'set:' + id);
+    }
+    case 'add-ranges': {
+      const set = currentSet();
+      const sub = subjectOf(set.node.id);
+      const r = await pickRanges(set.extra, '', { roots: [sub], fixed: set.node.id, named: false, title: `「${S.node(sub).title}」 안에서 함께 학습할 갈래` });
+      if (!r) return;
+      patchPrefs(set.key, { extra: r.scope.filter((x) => x !== set.node.id && !S.isAncestor(set.node.id, x)) });
+      return renderSet();
     }
     case 'save-preset': {
       const set = currentSet();

@@ -135,6 +135,26 @@ export async function copyText(text) {
   }
 }
 
+// ---- 글자색 · 형광펜 색 ----
+// ==글자== 기본(노랑) 형광펜, =={pink}글자== 색 형광펜, {red}글자{/} 글자색
+export const HL_COLORS = [['', '노랑'], ['green', '초록'], ['blue', '파랑'], ['pink', '분홍'], ['orange', '주황'], ['purple', '보라']];
+export const TEXT_COLORS = [['red', '빨강'], ['blue', '파랑'], ['green', '초록'], ['orange', '주황'], ['purple', '보라'], ['gray', '회색']];
+const HL_RE = new RegExp(String.raw`==(?:\{(${HL_COLORS.map((c) => c[0]).filter(Boolean).join('|')})\})?(.+?)==`, 'g');
+const TC_RE = new RegExp(String.raw`\{(${TEXT_COLORS.map((c) => c[0]).join('|')})\}|\{\/\}`, 'g');
+// 이미 HTML 로 바꾼(esc 된) 글에 색 서식을 입힌다. mark(c, 안쪽) 로 형광펜 모양을 바꿀 수 있다
+export function colorMd(x, mark = (c, t) => `<mark${c ? ` data-c="${c}"` : ''}>${t}</mark>`) {
+  x = x.replace(HL_RE, (_, c, t) => mark(c || '', t));
+  let open = 0;
+  x = x.replace(TC_RE, (m, c) => {
+    if (c) { open++; return `<span class="tc" data-c="${c}">`; }
+    if (!open) return '';
+    open--;
+    return '</span>';
+  });
+  return x + '</span>'.repeat(open);
+}
+export const stripColors = (s) => String(s || '').replace(HL_RE, '$2').replace(TC_RE, '');
+
 // ---- 간단 마크다운 ----
 // - 목록, 1. 번호, # 제목, > 인용, **굵게**, ==강조(빈칸)==, ~~취소~~, `코드`, [[링크]], -> 화살표
 export function inlineMd(s, opt = {}) {
@@ -146,7 +166,7 @@ export function inlineMd(s, opt = {}) {
   x = x.replace(/!\[([^\]]*)\]\(img:([A-Za-z0-9]+)\)/g, '<span class="img-pan"><img class="md-img" data-img="$2" alt="$1"></span>');
   x = x.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<span class="img-pan"><img class="md-img" src="$2" alt="$1" loading="lazy"></span>');
   x = x.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  x = x.replace(/==(.+?)==/g, opt.cloze ? '<span class="cloze" tabindex="0">$1</span>' : '<mark>$1</mark>');
+  x = colorMd(x, opt.cloze ? (c, t) => `<span class="cloze" tabindex="0">${t}</span>` : undefined);
   x = x.replace(/~~(.+?)~~/g, '<s>$1</s>');
   x = x.replace(/\[\[(.+?)\]\]/g, '<a class="wikilink" data-link="$1">$1</a>');
   x = x.replace(/&lt;-&gt;/g, '↔').replace(/=&gt;/g, '⇒').replace(/-&gt;/g, '→').replace(/&lt;-/g, '←');
@@ -186,4 +206,4 @@ export function renderMd(src, opt = {}) {
 }
 
 export const hasCloze = (s) => /==.+?==/.test(s || '');
-export const firstLine = (s) => String(s || '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').split('\n').map((l) => l.trim()).find(Boolean)?.replace(/^([-*+•>#]+|\d+[.)])\s*/, '').replace(/==|\*\*/g, '') || '';
+export const firstLine = (s) => stripColors(s).replace(/!\[[^\]]*\]\([^)]*\)/g, '').split('\n').map((l) => l.trim()).find(Boolean)?.replace(/^([-*+•>#]+|\d+[.)])\s*/, '').replace(/==|\*\*/g, '') || '';
