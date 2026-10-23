@@ -147,6 +147,7 @@ function route() {
   for (const x of VIEWS) $('#view-' + x).hidden = x !== view;
   for (const a of $$('#nav a')) a.classList.toggle('on', a.dataset.view === view);
   document.body.dataset.view = view;
+  if (view !== 'train') Train.leave();
   if (view === 'train') Train.show(id);
   else if (view === 'graph') GV.show(id);
   else if (view === 'tree') Tree.show(id);

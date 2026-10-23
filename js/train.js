@@ -3,6 +3,7 @@
 // 세트 안에서 레벨을 고르면 그 레벨 갈래가 카드가 된다. 앞면 = 이름, 뒷면 = 외울 것 또는 하위 목록.
 import * as S from './store.js';
 import * as Subject from './subject.js';
+import * as Drive from './drive.js';
 import { $, esc, shuffle, renderMd, firstLine, lsGet, lsSet, now, confirmDlg, promptDlg, openDialog, toast } from './util.js';
 
 const SESSION_KEY = 'galrae.v2.session';
@@ -87,6 +88,15 @@ function extrasFor(n) {
   return (setPrefs()[n.id]?.extra || []).filter((x) => S.node(x) && x !== n.id && subjectOf(x) === sub && !S.isAncestor(x, n.id) && !S.isAncestor(n.id, x));
 }
 
+// 저장된 세트: 함께 학습할 갈래를 골라 둔 갈래 세트 (최근에 고친 순)
+function savedSets() {
+  return Object.entries(setPrefs())
+    .filter(([k, v]) => v?.extra?.length && S.node(k))
+    .map(([k, v]) => ({ n: S.node(k), extra: extrasFor(S.node(k)), at: v.at || 0 }))
+    .filter((x) => x.extra.length)
+    .sort((a, b) => b.at - a.at);
+}
+
 // 현재 보고 있는 세트의 설정
 function currentSet() {
   if (!view) return null;
@@ -164,6 +174,7 @@ export function render() {
   }
   if (session && !session.paused && session.done) return renderSummary();
   if (session && !session.paused && session.i < session.cards.length) return renderCard();
+  driveOff();
   if (view && currentSet()) return renderSet();
   view = null;
   renderLibrary();
@@ -172,9 +183,16 @@ export function render() {
 // ---------- 세트 목록 ----------
 function renderLibrary() {
   const presets = S.presets();
+  const saved = savedSets();
   el.innerHTML = `<div class="page narrow">
     <header class="page-h"><div><h1>카드 학습</h1><p class="sub">세트를 고르고, 그 안에서 레벨을 정해 외워요</p></div></header>
     ${hasSession() ? `<section class="panel resume" data-act="resume"><div><b>이어서 학습</b><span class="muted">${esc(session.title)} · ${session.i} / ${session.cards.length}</span></div><button class="btn primary">계속</button></section>` : ''}
+    ${saved.length ? `<section class="lib-sec">
+      <div class="panel-h"><h3>저장된 세트</h3><span class="muted small">함께 학습할 갈래를 고른 세트</span></div>
+      <div class="set-list">${saved.map(({ n, extra }) => `<div class="set-row saved">
+        <button class="set-open" data-node="${n.id}"><span class="set-ic">⧉</span><span class="set-main"><b>${esc(n.title || '제목 없음')} <small class="muted">외 ${extra.length}</small></b><small>${esc([n, ...extra.map((x) => S.node(x))].map((x) => x.title || '제목 없음').join(' · '))}</small></span></button>
+        <em>${cardsIn([n.id, ...extra]).length}장</em><button class="icon-btn small" data-unsave="${n.id}" title="저장된 세트에서 빼기" aria-label="빼기">✕</button></div>`).join('')}</div>
+    </section>` : ''}
     <section class="lib-sec">
       <div class="panel-h"><h3>내 세트</h3><button class="link" data-act="new-preset">+ 새 세트</button></div>
       ${presets.length ? `<div class="set-list">${presets.map((p) => {
@@ -242,7 +260,7 @@ function renderSet() {
     ${sub ? `<section class="panel together">
       <div class="panel-h"><h3>함께 학습</h3><button class="link" data-act="add-ranges">+ 갈래 더하기</button></div>
       <div class="chips">${chip(set.node.id, false)}${set.extra.map((x) => chip(x, true)).join('')}</div>
-      ${set.extra.length ? '' : `<p class="muted small">「${esc(sub.title)}」 안의 다른 대단원·중단원… 갈래를 여러 개 골라 이 세트와 한꺼번에 외울 수 있어요.</p>`}
+      ${set.extra.length ? '<p class="muted small">세트 목록의 「저장된 세트」에서 바로 다시 열 수 있어요.</p>' : `<p class="muted small">「${esc(sub.title)}」 안의 다른 대단원·중단원… 갈래를 여러 개 골라 이 세트와 한꺼번에 외울 수 있어요.</p>`}
     </section>` : ''}
     ${set.special ? `<section class="panel">
       <div class="panel-h"><h3>과목</h3></div>
@@ -256,6 +274,7 @@ function renderSet() {
         <span><b>${esc(S.levelName(d))}</b><small>${set.node && d === S.depth(set.node.id) ? '이 갈래 자체' : `Lv${d}`}</small></span><em>${p.counts.get(d)}장</em></button>`).join('')}</div>
       <div class="kv mode-pick"><span>학습 방식</span><div class="seg" data-seg="cardMode"><button class="${cardMode() === 'browse' ? 'on' : ''}" data-v="browse">넘기며 외우기</button><button class="${cardMode() === 'test' ? 'on' : ''}" data-v="test">알아요 · 몰라요</button></div></div>
       <p class="muted small mode-desc">${cardMode() === 'browse' ? '좌우로 넘기기만 해요. 진도(숙련도)에는 기록되지 않아요.' : '카드마다 알아요/몰라요를 골라요. 진도에 기록되고, 끝나면 모르는 카드만 다시 볼 수 있어요.'}</p>
+      <div class="drive-pick"><label class="check"><span>🚗 운전 모드 <small class="muted">앞면을 소리로 읽고, 차 핸들 ⏮ ⏭ 로 넘기기</small></span><input type="checkbox" data-act="drive" ${Drive.enabled() ? 'checked' : ''}></label><button class="link" data-act="drive-cfg">음성 설정</button></div>
       <label class="check"><span>카드 섞기</span><input type="checkbox" data-pref="shuffle" ${p.shuffle ? 'checked' : ''}></label>
       ${set.special === 'star' ? '' : `<label class="check"><span>★ 별표한 카드만</span><input type="checkbox" data-pref="star" ${p.star ? 'checked' : ''}></label>`}
       ${set.special === 'unknown' ? '' : `<label class="check"><span>모르는 카드만</span><input type="checkbox" data-pref="unknownOnly" ${p.unknownOnly ? 'checked' : ''}></label>`}
@@ -410,11 +429,13 @@ function renderCard() {
     <div class="play-top">
       <button class="icon-btn" data-act="quit" title="끝내기 (Esc)">✕</button>
       <div class="play-title"><b>${s.i + 1} / ${s.cards.length}</b><small>${esc(s.title)}</small></div>
+      <button class="icon-btn drive-btn ${Drive.enabled() ? 'on' : ''}" data-act="drive" title="운전 모드 (앞면 읽기 · 핸들 버튼)">🚗</button>
       <button class="icon-btn where-btn ${whereFor === id ? 'on' : ''}" data-act="where" title="어디에 속하는지 (I)">📍</button>
       ${browsing() ? '<button class="icon-btn" data-act="shuffle-now" title="섞기">⇄</button>' : `<button class="icon-btn" data-act="undo" ${s.hist.length ? '' : 'disabled'} title="되돌리기 (Z)">↶</button>`}
     </div>
     <div class="bar"><i style="width:${((s.i + (browsing() ? 1 : 0)) / s.cards.length) * 100}%"></i></div>
     ${browsing() ? '<div class="tally browse"><span class="t-mode">넘기며 외우기 · 기록 안 됨</span></div>' : `<div class="tally"><span class="t-no">${s.unknown.length}</span><span class="t-yes">${s.known.length}</span></div>`}
+    ${Drive.enabled() ? '<div class="drive-bar"><span>🚗 핸들 ⏭ 다음 · ⏮ 이전 · ⏯ 뒤집기</span><button class="link" data-act="say">🔊 다시 듣기</button></div>' : ''}
     <div class="where" id="where" ${whereFor === id ? '' : 'hidden'}>${whereHtml(id)}</div>
     <div class="flip ${s.flipped ? 'flipped' : ''}" id="flash">
       <div class="face front">
@@ -436,10 +457,12 @@ function renderCard() {
     </div>
   </div>`;
   if (whereFor === id) requestAnimationFrame(drawWhere);
+  driveCard();
 }
 
 function renderSummary() {
   const s = session;
+  driveSummary();
   if (s.mode === 'browse') {
     el.innerHTML = `<div class="page narrow">
       <header class="page-h"><div><h1>다 봤어요 👏</h1><p class="sub">${esc(s.title)} · ${s.cards.length}장</p></div></header>
@@ -465,6 +488,67 @@ function renderSummary() {
     </div>
   </div>`;
 }
+
+// ---------- 운전 모드 ----------
+// 카드가 바뀔 때마다 앞면을 읽는다 (같은 카드를 다시 그릴 때는 다시 읽지 않음)
+let driveKey = null;
+function sideText(id, back) {
+  const n = S.node(id);
+  if (!back) return n.title || '제목 없음';
+  const kids = S.children(id).map((k) => S.node(k).title).filter(Boolean);
+  return Drive.plain(n.note) || (kids.length ? `하위 ${kids.length}갈래. ${kids.join(', ')}` : '');
+}
+const driveHandlers = () => ({
+  next: () => (session?.done ? driveAgain() : browsing() ? move(1) : judge(true)),
+  prev: () => (session?.done ? null : browsing() ? move(-1) : judge(false)),
+  toggle: () => {
+    if (!session || session.done || session.paused) return;
+    flip();
+    Drive.speak(sideText(session.cards[session.i], session.flipped));
+  },
+});
+
+async function driveCard() {
+  if (!Drive.enabled()) return driveOff();
+  Drive.activate(driveHandlers());
+  const s = session;
+  const id = s.cards[s.i];
+  const key = `${s.started}|${s.i}|${id}`;
+  if (driveKey === key) return;
+  driveKey = key;
+  Drive.nowPlaying(S.node(id).title || '제목 없음', `${s.i + 1} / ${s.cards.length} · ${s.title}`);
+  const done = await Drive.speak(sideText(id, s.flipped));
+  // 뒷면도 읽기: 떠올릴 시간을 조금 두고
+  if (!done || !S.settings.ttsBack || s.flipped) return;
+  await new Promise((r) => setTimeout(r, 2500));
+  if (driveKey !== key || session !== s || s.flipped || s.paused || s.done) return;
+  flip();
+  Drive.speak(sideText(id, true));
+}
+
+function driveSummary() {
+  if (!Drive.enabled()) return driveOff();
+  Drive.activate(driveHandlers());
+  const s = session;
+  const key = `${s.started}|done`;
+  if (driveKey === key) return;
+  driveKey = key;
+  const unknown = s.unknown.filter((x) => S.node(x)).length;
+  Drive.nowPlaying('다 봤어요', s.title);
+  Drive.speak(s.mode === 'test' && unknown ? `끝났어요. 모르는 카드 ${unknown}장. 다음 버튼을 누르면 모르는 카드만 다시 봐요.` : '다 봤어요. 다음 버튼을 누르면 처음부터 다시 봐요.');
+}
+
+// 결과 화면에서 핸들 ⏭: 모르는 카드(없으면 처음부터) 다시
+function driveAgain() {
+  const s = session;
+  const unknown = s.unknown.filter((x) => S.node(x));
+  if (s.mode === 'test' && unknown.length) return begin(shuffle(unknown), s.title, s.from, 'test');
+  begin(shuffle(s.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), s.title, s.from, s.mode);
+}
+
+function driveOff() { driveKey = null; Drive.deactivate(); }
+// 다른 화면으로 가면 읽기와 핸들 버튼 연결을 끈다
+export const leave = () => driveOff();
 
 // ---------- 동작 ----------
 function flip() {
@@ -557,7 +641,7 @@ async function onClick(e) {
   if (t.matches('input[data-pref]')) return updatePref((p) => { p[t.dataset.pref] = t.checked; });
   const tab = t.closest('[data-subject]');
   if (tab) { Subject.set(tab.dataset.subject); return renderLibraryList(); }
-  const b = t.closest('[data-act],[data-level],[data-judge],[data-node],[data-preset],[data-special],[data-subjf],[data-rmextra],[data-libopen],[data-star],[data-open]');
+  const b = t.closest('[data-act],[data-level],[data-judge],[data-node],[data-preset],[data-special],[data-subjf],[data-rmextra],[data-libopen],[data-star],[data-open],[data-unsave]');
   if (!b) {
     if (t.closest('#flash') && !t.closest('a,button')) flip();
     return;
@@ -581,7 +665,13 @@ async function onClick(e) {
   if (b.dataset.preset) return api.go('train', 'set:' + b.dataset.preset);
   if (b.dataset.special) return api.go('train', b.dataset.special);
   if ('subjf' in b.dataset) { patchPrefs(currentSet().key, { subj: b.dataset.subjf || null }); return renderSet(); }
-  if (b.dataset.rmextra) { const set = currentSet(); patchPrefs(set.key, { extra: set.extra.filter((x) => x !== b.dataset.rmextra) }); return renderSet(); }
+  if (b.dataset.rmextra) { const set = currentSet(); patchPrefs(set.key, { extra: set.extra.filter((x) => x !== b.dataset.rmextra), at: now() }); return renderSet(); }
+  if (b.dataset.unsave) {
+    const id = b.dataset.unsave;
+    if (!(await confirmDlg(`'${S.node(id).title || '제목 없음'}'에서 함께 학습할 갈래를 뺄까요?`, { ok: '빼기', detail: '저장된 세트에서 빠지고, 갈래와 카드는 그대로예요.' }))) return;
+    patchPrefs(id, { extra: [] });
+    return renderLibrary();
+  }
   if (b.dataset.star) {
     const id = b.dataset.star;
     S.as('train', () => S.updateNode(id, { star: !S.node(id).star }));
@@ -605,6 +695,14 @@ async function onClick(e) {
     case 'next': return move(1);
     case 'flip': return flip();
     case 'where': return toggleWhere();
+    case 'drive': {
+      S.saveSettings({ driveMode: !Drive.enabled() });
+      if (Drive.enabled()) toast('운전 모드: 카드 앞면을 읽어 줘요. 차와 블루투스로 연결하면 핸들 ⏮ ⏭ 로 넘겨요', { ms: 3500 });
+      if (session && !session.paused) { driveKey = null; return render(); }
+      return renderSet();
+    }
+    case 'drive-cfg': return Drive.settingsDialog();
+    case 'say': driveKey = null; return driveCard();
     case 'shuffle-now': { const s = session; const rest = shuffle(s.cards.slice(s.i)); s.cards.splice(s.i, rest.length, ...rest); s.flipped = false; persist(); toast('남은 카드를 섞었어요', { ms: 1200 }); return render(); }
     case 'to-test': return begin(shuffle(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from, 'test');
     case 'restart': return begin(shuffle(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from, session.mode);
@@ -620,7 +718,7 @@ async function onClick(e) {
       const sub = subjectOf(set.node.id);
       const r = await pickRanges(set.extra, '', { roots: [sub], fixed: set.node.id, named: false, title: `「${S.node(sub).title}」 안에서 함께 학습할 갈래` });
       if (!r) return;
-      patchPrefs(set.key, { extra: r.scope.filter((x) => x !== set.node.id && !S.isAncestor(set.node.id, x)) });
+      patchPrefs(set.key, { extra: r.scope.filter((x) => x !== set.node.id && !S.isAncestor(set.node.id, x)), at: now() });
       return renderSet();
     }
     case 'save-preset': {

@@ -471,8 +471,43 @@ const H = `
       const cards = JSON.parse(localStorage.getItem('galrae.v2.session')).cards;
       out.together = out.together && cards.length === withB && cards.some((x) => S.parentOf(x) === b);
       click($('#view-train [data-act="quit"]')); await sleep(40);
+      // 저장된 세트: 함께 학습을 고른 세트가 목록에 생기고, 누르면 그대로 열림
+      await go('#train/list');
+      const savedRow = $(`#view-train .set-row.saved [data-node="${a}"]`);
+      out.saved = !!savedRow && savedRow.textContent.includes('외 1');
+      click(savedRow); await sleep(40);
+      out.saved = out.saved && $('.set-h h1').textContent.includes('외 1') && $$('.term-row').length === withB;
       click($(`#view-train [data-rmextra="${b}"]`)); await sleep(20);
       out.together = out.together && $$('.term-row').length === before && !$('.set-h h1').textContent.includes('외 1');
+      await go('#train/list');
+      out.saved = out.saved && !$('#view-train .set-row.saved');
+    }
+    // 🚗 운전 모드: 카드가 바뀌면 앞면을 읽고, 핸들(미디어 버튼) ⏭ ⏮ 로 넘기기
+    {
+      const spoken = [], mh = {};
+      speechSynthesis.speak = (u) => { spoken.push(u.text); setTimeout(() => u.onend?.(), 5); };
+      speechSynthesis.cancel = () => {};
+      navigator.mediaSession.setActionHandler = (a, fn) => { mh[a] = fn; };
+      HTMLMediaElement.prototype.play = function () { return Promise.resolve(); };
+      const a = S.findByTitle('임신의 내외과적 질환');
+      await go('#train/' + a);
+      click($('#view-train [data-seg="cardMode"] [data-v="browse"]')); await sleep(20);
+      const sh = $('#view-train input[data-pref="shuffle"]'); if (sh.checked) { click(sh); await sleep(20); }
+      click($('#view-train input[data-act="drive"]')); await sleep(20);
+      click($('#view-train [data-act="start"]')); await sleep(60);
+      const ss = () => JSON.parse(localStorage.getItem('galrae.v2.session'));
+      const title = (i) => S.node(ss().cards[i]).title;
+      out.drive = !!$('#view-train .drive-bar') && spoken.at(-1) === title(0) && typeof mh.nexttrack === 'function';
+      mh.nexttrack(); await sleep(250);
+      out.drive = out.drive && ss().i === 1 && spoken.at(-1) === title(1) && navigator.mediaSession.metadata?.title === title(1);
+      mh.previoustrack(); await sleep(250);
+      out.drive = out.drive && ss().i === 0 && spoken.at(-1) === title(0);
+      mh.pause(); await sleep(20);
+      out.drive = out.drive && ss().flipped && spoken.length >= 4;
+      click($('#view-train [data-act="quit"]')); await sleep(40);
+      out.drive = out.drive && !mh.nexttrack; // 세트 화면으로 나오면 핸들 버튼 연결 해제
+      click($('#view-train input[data-act="drive"]')); await sleep(20);
+      out.drive = out.drive && !S.settings.driveMode;
     }
     // 모아 보기: 별표 · 모르는 카드
     {
@@ -600,6 +635,8 @@ const H = `
   ok('정리: 외울 것에서 Ctrl+S → 저장·보기 화면·목록으로', r.ctrlS);
   ok('정리: Shift+Enter 로 하위 추가(이름 칸에서도)', r.addChildKey);
   ok('카드: 같은 과목의 다른 갈래와 함께 학습', r.together);
+  ok('카드: 저장된 세트(함께 학습 고른 세트 다시 열기 · 빼기)', r.saved);
+  ok('카드: 🚗 운전 모드(앞면 읽기 · 핸들 ⏭ ⏮ ⏯)', r.drive);
   ok('카드: 모아 보기(별표 · 모르는 카드)', r.special);
   ok('마인드맵: 노트 카드', r.noteCard);
   ok('마인드맵: 노트 카드에서 편집', r.graphEdit);
