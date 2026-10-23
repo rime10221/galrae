@@ -435,7 +435,10 @@ const H = `
       const lastLn = $('.d-note-host .rich').lastElementChild, lr = lastLn.getBoundingClientRect();
       const an = getSelection().anchorNode;
       out.rightNote = out.rightNote && lastLn.contains(an) && lr.bottom <= innerHeight + 1 && lr.top >= 0;
-      key(document.activeElement, 'Escape'); await sleep(40);
+      // Ctrl+S: 저장하고 보기 화면, 목록으로 돌아가 키보드로 계속
+      document.execCommand('insertText', false, '끝줄');
+      key(document.activeElement, 's', { ctrlKey: true }); await sleep(60);
+      out.ctrlS = (S.node(leaf).note || '').includes('끝줄') && !$('.d-note-host .rich') && document.activeElement === $('#olist') && $('.orow.sel')?.dataset.id === leaf;
       S.updateNode(leaf, { note: '' });
       // Shift+Enter: 선택한 줄에 하위 추가, 이름 칸에서도 저장 후 그 아래 하위 추가
       const kids0 = S.children(leaf).length;
@@ -594,6 +597,7 @@ const H = `
   ok('카드: 되돌리기', r.undo);
   ok('내 세트: 여러 범위 묶기', r.preset);
   ok('정리: 하위 없는 갈래에서 → 는 외울 것 쓰기, Esc 로 목록', r.rightNote);
+  ok('정리: 외울 것에서 Ctrl+S → 저장·보기 화면·목록으로', r.ctrlS);
   ok('정리: Shift+Enter 로 하위 추가(이름 칸에서도)', r.addChildKey);
   ok('카드: 같은 과목의 다른 갈래와 함께 학습', r.together);
   ok('카드: 모아 보기(별표 · 모르는 카드)', r.special);

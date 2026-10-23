@@ -603,7 +603,7 @@ function renderDetail() {
   </div>`;
   const host = $('.d-note-host', det);
   const id = sel;
-  noteEd = host ? Ed.mount(host, n.note || '', (v) => { saveState('dirty'); saveNote(id, v); }, { rows: 16, onSave: () => saveNow(true) }) : null;
+  noteEd = host ? Ed.mount(host, n.note || '', (v) => { saveState('dirty'); saveNote(id, v); }, { rows: 16, onSave: () => { saveNow(); focusList(id); } }) : null;
   // 외울 것에서 Esc → 저장하고 목록의 그 줄로 (키보드로 계속 이동)
   host?.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || e.defaultPrevented || composing(e)) return;
@@ -636,7 +636,7 @@ function saveState(s) {
   box.textContent = s === 'dirty' ? '저장 중…' : s === 'saved' ? '저장됨 ✓' : '';
 }
 
-// 저장 버튼 / Ctrl+S: 바로 저장 (버튼은 저장 후 읽기 화면으로)
+// 저장 버튼 / Ctrl+S: 바로 저장하고 읽기 화면으로 (Ctrl+S 는 목록으로 돌아가 키보드로 계속)
 function saveNow(stay = false) {
   flushDetail();
   saveState('saved');
