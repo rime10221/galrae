@@ -70,7 +70,8 @@ function levelCounts(ids) {
 }
 
 // 맨 끝 갈래: 하위가 없는 갈래 (단원마다 중단원·소단원·세부… 깊이가 달라도)
-const isLeaf = (id) => !S.children(id).length;
+// 하위 갈래가 있어도 그 하위가 모두 빈 갈래(외울 것도, 하위도 없음)면 이 갈래가 맨 끝 카드다
+const isLeaf = (id) => !S.children(id).some(hasBack);
 
 function buildDeck(set, cfg) {
   let ids = setCards(set);
@@ -92,7 +93,7 @@ function extrasFor(n) {
 function savedSets() {
   return Object.entries(setPrefs())
     .filter(([k, v]) => v?.extra?.length && S.node(k))
-    .map(([k, v]) => ({ n: S.node(k), extra: extrasFor(S.node(k)), at: v.at || 0 }))
+    .map(([k, v]) => ({ n: S.node(k), extra: extrasFor(S.node(k)), at: v.at || 0, name: v.name || '' }))
     .filter((x) => x.extra.length)
     .sort((a, b) => b.at - a.at);
 }
@@ -113,7 +114,9 @@ function currentSet() {
   const n = S.node(view.node);
   if (!n) return null;
   const extra = extrasFor(n);
-  return { key: n.id, title: (n.title || '제목 없음') + (extra.length ? ` 외 ${extra.length}` : ''), scope: [n.id, ...extra], node: n, extra };
+  // 함께 학습 세트는 이름을 붙일 수 있다 (없으면 '갈래 외 N')
+  const name = extra.length ? setPrefs()[n.id]?.name : '';
+  return { key: n.id, title: name || (n.title || '제목 없음') + (extra.length ? ` 외 ${extra.length}` : ''), named: !!name, scope: [n.id, ...extra], node: n, extra };
 }
 
 function prefsFor(set) {
@@ -125,7 +128,8 @@ function prefsFor(set) {
     // 처음 열면: 노드 세트는 바로 아래 레벨, 내 세트는 저장된 레벨, 모아 보기는 전부
     if (set.special) levels = [];
     else if (set.preset) levels = (set.preset.opts.levels || []).filter((d) => counts.has(d));
-    else { const d = S.depth(set.node.id) + 1; levels = counts.has(d) ? [d] : []; }
+    // 함께 학습하는 갈래도 각자 바로 아래 레벨을
+    else levels = [...new Set([set.node.id, ...(set.extra || [])].map((x) => S.depth(x) + 1))].filter((d) => counts.has(d)).sort((a, b) => a - b);
   }
   // 기본은 맨 끝 갈래만 (모아 보기는 별표·모르는 카드 전부). 맨 끝 갈래 카드가 없으면 레벨로
   const leafCount = setCards(set).filter(isLeaf).length;
@@ -189,8 +193,8 @@ function renderLibrary() {
     ${hasSession() ? `<section class="panel resume" data-act="resume"><div><b>이어서 학습</b><span class="muted">${esc(session.title)} · ${session.i} / ${session.cards.length}</span></div><button class="btn primary">계속</button></section>` : ''}
     ${saved.length ? `<section class="lib-sec">
       <div class="panel-h"><h3>저장된 세트</h3><span class="muted small">함께 학습할 갈래를 고른 세트</span></div>
-      <div class="set-list">${saved.map(({ n, extra }) => `<div class="set-row saved">
-        <button class="set-open" data-node="${n.id}"><span class="set-ic">⧉</span><span class="set-main"><b>${esc(n.title || '제목 없음')} <small class="muted">외 ${extra.length}</small></b><small>${esc([n, ...extra.map((x) => S.node(x))].map((x) => x.title || '제목 없음').join(' · '))}</small></span></button>
+      <div class="set-list">${saved.map(({ n, extra, name }) => `<div class="set-row saved">
+        <button class="set-open" data-node="${n.id}"><span class="set-ic">⧉</span><span class="set-main"><b>${name ? esc(name) : `${esc(n.title || '제목 없음')} <small class="muted">외 ${extra.length}</small>`}</b><small>${esc([n, ...extra.map((x) => S.node(x))].map((x) => x.title || '제목 없음').join(' · '))}</small></span></button>
         <em>${cardsIn([n.id, ...extra]).length}장</em><button class="icon-btn small" data-unsave="${n.id}" title="저장된 세트에서 빼기" aria-label="빼기">✕</button></div>`).join('')}</div>
     </section>` : ''}
     <section class="lib-sec">
@@ -249,7 +253,10 @@ function renderSet() {
   const deck = buildDeck(set, { ...p, shuffle: false });
   const crumbs = set.node ? S.path(set.node.id).slice(0, -1).map((x) => esc(x.title)).join(' <i>›</i> ') : set.special ? '모아 보기' : '내 세트';
   const sub = set.node && S.parentOf(set.node.id) ? S.node(subjectOf(set.node.id)) : null;
-  const chip = (id, rm) => `<span class="chip ${rm ? '' : 'fixed'}"><span>${esc(S.node(id).title || '제목 없음')}</span><small>${cardsIn([id]).length}장</small>${rm ? `<button data-rmextra="${id}" title="빼기" aria-label="빼기">✕</button>` : ''}</span>`;
+  // 갈래마다 지금 레벨에서 실제로 카드에 들어가는 장수 (0장이면 표시)
+  const inDeck = (id) => deck.filter((x) => x === id || S.isAncestor(id, x)).length;
+  const missing = set.extra?.filter((x) => !inDeck(x) && cardsIn([x]).length) || [];
+  const chip = (id, rm) => `<span class="chip ${rm ? '' : 'fixed'} ${missing.includes(id) ? 'warn' : ''}"><span>${esc(S.node(id).title || '제목 없음')}</span><small>${inDeck(id)}장</small>${rm ? `<button data-rmextra="${id}" title="빼기" aria-label="빼기">✕</button>` : ''}</span>`;
   el.innerHTML = `<div class="page narrow">
     <button class="back-link" data-act="list">‹ 세트 목록</button>
     <header class="set-h">
@@ -258,8 +265,9 @@ function renderSet() {
       ${set.preset ? `<p class="sub">${esc((set.scope || []).map((x) => S.node(x)?.title).filter(Boolean).join(' · ') || '전체')}</p>` : ''}
     </header>
     ${sub ? `<section class="panel together">
-      <div class="panel-h"><h3>함께 학습</h3><button class="link" data-act="add-ranges">+ 갈래 더하기</button></div>
+      <div class="panel-h"><h3>함께 학습</h3><span>${set.extra.length ? `<button class="link" data-act="name-set">${set.named ? '이름 바꾸기' : '이름 붙이기'}</button> ` : ''}<button class="link" data-act="add-ranges">+ 갈래 더하기</button></span></div>
       <div class="chips">${chip(set.node.id, false)}${set.extra.map((x) => chip(x, true)).join('')}</div>
+      ${missing.length ? `<p class="small warn-msg">지금 고른 레벨에는 「${missing.map((x) => esc(S.node(x).title || '제목 없음')).join('」·「')}」 카드가 없어요. 「맨 끝 갈래」를 고르거나 레벨을 더 골라 주세요.</p>` : ''}
       ${set.extra.length ? '<p class="muted small">세트 목록의 「저장된 세트」에서 바로 다시 열 수 있어요.</p>' : `<p class="muted small">「${esc(sub.title)}」 안의 다른 대단원·중단원… 갈래를 여러 개 골라 이 세트와 한꺼번에 외울 수 있어요.</p>`}
     </section>` : ''}
     ${set.special ? `<section class="panel">
@@ -718,7 +726,23 @@ async function onClick(e) {
       const sub = subjectOf(set.node.id);
       const r = await pickRanges(set.extra, '', { roots: [sub], fixed: set.node.id, named: false, title: `「${S.node(sub).title}」 안에서 함께 학습할 갈래` });
       if (!r) return;
-      patchPrefs(set.key, { extra: r.scope.filter((x) => x !== set.node.id && !S.isAncestor(set.node.id, x)), at: now() });
+      const extra = r.scope.filter((x) => x !== set.node.id && !S.isAncestor(set.node.id, x));
+      patchPrefs(set.key, { extra, at: now() });
+      // 레벨로 고르고 있었다면, 더한 갈래에서도 같은 단계(이 세트 기준으로 몇 단계 아래인지)를 함께 고른다
+      const p = prefsFor(currentSet());
+      if (!p.leaf && p.levels.length) {
+        const base = S.depth(set.node.id);
+        const add = extra.flatMap((x) => p.levels.map((d) => d - base + S.depth(x)));
+        p.levels = [...new Set([...p.levels, ...add])].filter((d) => p.counts.has(d)).sort((a, b) => a - b);
+        savePrefs(currentSet(), p);
+      }
+      return renderSet();
+    }
+    case 'name-set': {
+      const set = currentSet();
+      const name = await promptDlg('세트 이름 (비우면 기본 이름)', set.named ? set.title : '', `${set.node.title || '제목 없음'} 외 ${set.extra.length}`);
+      if (name === null) return;
+      patchPrefs(set.key, { name });
       return renderSet();
     }
     case 'save-preset': {

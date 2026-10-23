@@ -344,8 +344,9 @@ const H = `
     out.library = !!$(`#view-train [data-node="${ob}"]`);
     click($(`#view-train .set-main[data-node="${ob}"]`)); await sleep(150);
     const cardIds = (d) => S.descendants(ob).filter((x) => S.depth(x) === d && ((S.node(x).note || '').trim() || S.children(x).length));
-    // 기본은 맨 끝 갈래 (깊이가 섞여 있어도 하위 없는 갈래만)
-    const leaves = S.descendants(ob).filter((x) => !S.children(x).length && (S.node(x).note || '').trim());
+    // 기본은 맨 끝 갈래 (깊이가 섞여 있어도, 하위가 모두 빈 갈래면 그 갈래가 맨 끝)
+    const back = (x) => (S.node(x).note || '').trim() || S.children(x).length;
+    const leaves = S.descendants(ob).filter((x) => back(x) && !S.children(x).some(back));
     const leafDepths = new Set(leaves.map((x) => S.depth(x)));
     out.defaultLevel = $$('#view-train .level-btn.on').length === 1 && !!$('#view-train .level-btn.leaf.on') && leafDepths.size > 1
       && $$('.term-row').length === leaves.length && $$('.term-row').every((r) => leaves.includes(r.dataset.open));
@@ -481,6 +482,40 @@ const H = `
       out.together = out.together && $$('.term-row').length === before && !$('.set-h h1').textContent.includes('외 1');
       await go('#train/list');
       out.saved = out.saved && !$('#view-train .set-row.saved');
+    }
+    // 함께 학습: 다른 깊이의 갈래 · 맨 끝이 빈 갈래도 카드로 들어오고, 세트 이름 붙이기
+    {
+      const a = S.findByTitle('임신의 내외과적 질환'), b = S.findByTitle('정상 임신과 산전 관리');
+      const x = S.addNode({ parent: b, title: '빈 끝 중단원' }); // 하위가 모두 빈 갈래 → 이 갈래가 맨 끝 카드
+      S.addNode({ parent: x, title: '빈 소단원1' }); S.addNode({ parent: x, title: '빈 소단원2' });
+      const y = S.addNode({ parent: b, title: '깊이 다른 중단원' });
+      const yk = S.addNode({ parent: y, title: '깊이 다른 소단원', note: '- 내용' });
+      S.saveSettings({ setPrefs: { ...S.settings.setPrefs, [a]: { leaf: true, extra: [x, y], at: Date.now() } } });
+      await go('#train/' + a);
+      const ids = () => $$('.term-row').map((r) => r.dataset.open);
+      out.togetherDeep = ids().includes(x) && ids().includes(yk) && !$('.together .chip.warn');
+      // 레벨로 바꾸면(대단원 세트의 중단원) 더한 중단원은 소단원이 같은 단계 → 자동으로 함께
+      S.saveSettings({ setPrefs: { ...S.settings.setPrefs, [a]: { extra: [], at: Date.now() } } });
+      await go('#train/' + a);
+      click($(`#view-train [data-level="${S.depth(a) + 1}"]`)); await sleep(20);
+      click($('#view-train [data-act="add-ranges"]')); await sleep(40);
+      const dlg = $$('dialog').pop();
+      for (const p of S.path(y).map((n) => n.id).slice(0, -1)) { const c = dlg.querySelector(`[data-o="${p}"]:not(.open)`); if (c) { click(c); await sleep(10); } }
+      dlg.querySelector(`input[data-s="${y}"]`).click(); await sleep(20);
+      click(dlg.querySelector('#psOk')); await sleep(40);
+      out.togetherDeep = out.togetherDeep && ids().includes(yk) && !$('.together .chip.warn');
+      // 더한 갈래에 카드가 없는 레벨(대단원 = 이 세트 자체)만 고르면 빠졌다고 알려 줌
+      S.saveSettings({ setPrefs: { ...S.settings.setPrefs, [a]: { ...S.settings.setPrefs[a], leaf: false, levels: [S.depth(a)] } } });
+      await go('#train/list'); await go('#train/' + a);
+      out.togetherDeep = out.togetherDeep && !ids().includes(yk) && !!$('.together .chip.warn') && !!$('.together .warn-msg');
+      // 이름 붙이기 → 세트 제목·저장된 세트에 이름
+      click($('#view-train [data-act="name-set"]')); await sleep(40);
+      const pd = $$('dialog').pop(); pd.querySelector('input').value = '출퇴근 산과'; click(pd.querySelector('[data-ok]')); await sleep(40);
+      out.setName = $('.set-h h1').textContent === '출퇴근 산과';
+      await go('#train/list');
+      out.setName = out.setName && $(`#view-train .set-row.saved [data-node="${a}"]`)?.textContent.includes('출퇴근 산과');
+      S.saveSettings({ setPrefs: { ...S.settings.setPrefs, [a]: {} } });
+      for (const n of [x, y]) S.deleteNode(n);
     }
     // 🚗 운전 모드: 카드가 바뀌면 앞면을 읽고, 핸들(미디어 버튼) ⏭ ⏮ 로 넘기기
     {
@@ -636,6 +671,8 @@ const H = `
   ok('정리: Shift+Enter 로 하위 추가(이름 칸에서도)', r.addChildKey);
   ok('카드: 같은 과목의 다른 갈래와 함께 학습', r.together);
   ok('카드: 저장된 세트(함께 학습 고른 세트 다시 열기 · 빼기)', r.saved);
+  ok('카드: 함께 학습 — 깊이가 다른 갈래 · 끝이 빈 갈래도 카드로, 빠지면 알림', r.togetherDeep);
+  ok('카드: 함께 학습 세트 이름 붙이기', r.setName);
   ok('카드: 🚗 운전 모드(앞면 읽기 · 핸들 ⏭ ⏮ ⏯)', r.drive);
   ok('카드: 모아 보기(별표 · 모르는 카드)', r.special);
   ok('마인드맵: 노트 카드', r.noteCard);
