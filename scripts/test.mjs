@@ -76,16 +76,19 @@ const H = `
     out.dblEsc = !!e2 && S.node(id1).title === t1 + '!';
     S.updateNode(id1, { title: t1 });
     await go('#tree');
-    // ＋ → 하위 추가 (이름 입력 → Enter 저장 후 이어서 다음 항목, 비워 두면 사라짐)
+    // ＋ → 하위 추가 (이름 입력 → Enter 저장하고 그 갈래 선택 유지, Ctrl+Enter 면 이어서 다음 항목, 비워 두면 사라짐)
     click($(`.orow[data-id="${id1}"] [data-act="add-child"]`)); await sleep(30);
     const e3 = document.activeElement;
     out.plusChild = e3?.matches('.otitle') && S.parentOf(e3.closest('.orow').dataset.id) === id1;
     const nid = e3.closest('.orow').dataset.id;
     e3.value = '테스트'; key(e3, 'Enter'); await sleep(30);
+    const stay = !$('.orow .otitle') && $('.orow.sel')?.dataset.id === nid && S.node(nid)?.title === '테스트' && document.activeElement === list;
+    key(list, 'F2'); await sleep(30);
+    key($('.orow .otitle'), 'Enter', { ctrlKey: true }); await sleep(30);
     const e4 = document.activeElement;
     const cont = e4?.matches('.otitle') && e4.closest('.orow').dataset.id !== nid;
     key(e4, 'Escape'); await sleep(30);
-    out.plusFlow = S.node(nid)?.title === '테스트' && cont && S.children(id1).length === 4;
+    out.plusFlow = stay && S.node(nid)?.title === '테스트' && cont && S.children(id1).length === 4;
     // 선택한 줄 키보드 조작
     click($(`.orow[data-id="${nid}"] .otext`)); await sleep(20);
     key(list, 'ArrowUp', { altKey: true }); await sleep(30);
@@ -442,8 +445,8 @@ const H = `
       const c1 = S.children(leaf).find((x) => S.node(x).title === '하위 하나');
       const inp2 = $('.orow .otitle');
       inp2.value = '손자'; key(inp2, 'Enter'); await sleep(40);
-      key($('.orow .otitle'), 'Escape'); await sleep(40);
-      out.addChildKey = S.children(leaf).length === kids0 + 1 && !!c1 && S.children(c1).map((x) => S.node(x).title).join() === '손자';
+      out.stayAfterChild = !$('.orow .otitle') && $('.orow.sel')?.dataset.id === S.children(c1)[0];
+      out.addChildKey = out.stayAfterChild && S.children(leaf).length === kids0 + 1 && !!c1 && S.children(c1).map((x) => S.node(x).title).join() === '손자';
       S.deleteNode(c1);
     }
     // 함께 학습: 대단원 세트에 같은 과목의 다른 갈래를 더하기
@@ -545,7 +548,7 @@ const H = `
   ok('정리: F2로 이름 바꾸기', r.f2Rename);
   ok('정리: 더블클릭 편집 · Esc 취소', r.dblEsc);
   ok('정리: ＋로 하위 추가', r.plusChild);
-  ok('정리: 입력 후 Enter → 이어서 다음 항목, Esc → 빈 항목 삭제', r.plusFlow);
+  ok('정리: 입력 후 Enter → 그 갈래 선택 유지, Ctrl+Enter → 다음 항목, Esc → 빈 항목 삭제', r.plusFlow);
   ok('정리: Alt+↑ 순서 이동', r.altMove);
   ok('정리: Alt+→ 들여쓰기', r.tabIndent);
   ok('정리: Alt+← 내어쓰기', r.shiftTab);

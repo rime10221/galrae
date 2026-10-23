@@ -1,5 +1,6 @@
 ﻿// 정리(트리) + 상세 패널
 // 한 번 누르면 선택, ✎ · 더블클릭 · F2 로 이름 바꾸기, ＋ 로 하위 추가
+// 이름 칸: Enter 저장(그 갈래 선택 유지) · Ctrl+Enter 저장 후 아래에 새 항목 · Shift+Enter 저장 후 하위 추가
 // 선택한 상태에서: ↑↓ 이동 · ←→ 접기/펼치기 · Enter/F2 이름 · Tab 같은 레벨 다음(없으면 새 항목) · Alt+←→ 내어/들여쓰기 · Alt+↑↓ 순서 · Delete 삭제
 // ⠿ 를 끌어서 순서 바꾸기 (줄 위/아래에 놓으면 그 앞/뒤, 가운데에 놓으면 그 갈래의 하위로)
 import * as S from './store.js';
@@ -233,7 +234,7 @@ function startEdit(id, isNew = false) {
   renderList();
 }
 
-// save: 입력한 이름 저장 / 취소. next: 이어서 아래에 새 항목
+// save: 입력한 이름 저장 / 취소. next(Ctrl+Enter): 이어서 아래에 새 항목
 function finishEdit(save, { next = false } = {}) {
   const id = editingId;
   if (!id) return;
@@ -253,7 +254,7 @@ function finishEdit(save, { next = false } = {}) {
   if (n && save && value !== n.title) S.as('outline', () => S.updateNode(id, { title: value }));
   renderList();
   renderDetail();
-  if (next && wasNew && value) return addAfter(id);
+  if (next && value) return addAfter(id);
   focusList(id);
 }
 
@@ -448,7 +449,8 @@ function onKey(e) {
     const id = editingId;
     // Shift+Enter: 저장하고 바로 그 아래에 하위 추가 (비워 둔 새 항목이면 그냥 지움)
     if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); finishEdit(true); if (S.node(id)?.title) addChild(id); }
-    else if (e.key === 'Enter') { e.preventDefault(); finishEdit(true, { next: !mod }); }
+    // Enter: 저장하고 그 갈래에 머문다 (→ 로 바로 외울 것). Ctrl+Enter: 저장하고 이어서 아래에 새 항목
+    else if (e.key === 'Enter') { e.preventDefault(); finishEdit(true, { next: mod }); }
     else if (e.key === 'Escape') { e.preventDefault(); finishEdit(false); }
     else if (e.key === 'Tab') {
       e.preventDefault();
