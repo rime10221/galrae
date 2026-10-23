@@ -67,9 +67,13 @@ function levelCounts(ids) {
   return m;
 }
 
+// 맨 끝 갈래: 하위가 없는 갈래 (단원마다 중단원·소단원·세부… 깊이가 달라도)
+const isLeaf = (id) => !S.children(id).length;
+
 function buildDeck(set, cfg) {
   let ids = setCards(set);
-  if (cfg.levels?.length) ids = ids.filter((x) => cfg.levels.includes(S.depth(x)));
+  if (cfg.leaf) ids = ids.filter(isLeaf);
+  else if (cfg.levels?.length) ids = ids.filter((x) => cfg.levels.includes(S.depth(x)));
   if (cfg.star) ids = ids.filter((x) => S.node(x).star);
   if (cfg.unknownOnly) ids = ids.filter((x) => { const p = S.prog(PKEY(x)); return !p || p.b <= 1; });
   return cfg.shuffle ? shuffle(ids) : ids;
@@ -112,13 +116,16 @@ function prefsFor(set) {
     else if (set.preset) levels = (set.preset.opts.levels || []).filter((d) => counts.has(d));
     else { const d = S.depth(set.node.id) + 1; levels = counts.has(d) ? [d] : []; }
   }
-  return { levels, shuffle: saved?.shuffle ?? true, star: saved?.star ?? false, unknownOnly: saved?.unknownOnly ?? false, avail, counts };
+  // 기본은 맨 끝 갈래만 (모아 보기는 별표·모르는 카드 전부). 맨 끝 갈래 카드가 없으면 레벨로
+  const leafCount = setCards(set).filter(isLeaf).length;
+  const leaf = !!leafCount && (saved?.leaf ?? (set.preset?.opts.leaf ?? !set.special));
+  return { leaf, leafCount, levels, shuffle: saved?.shuffle ?? true, star: saved?.star ?? false, unknownOnly: saved?.unknownOnly ?? false, avail, counts };
 }
 
 function savePrefs(set, p) {
-  const all = { ...setPrefs(), [set.key]: { ...setPrefs()[set.key], levels: p.levels, shuffle: p.shuffle, star: p.star, unknownOnly: p.unknownOnly } };
+  const all = { ...setPrefs(), [set.key]: { ...setPrefs()[set.key], leaf: p.leaf, levels: p.levels, shuffle: p.shuffle, star: p.star, unknownOnly: p.unknownOnly } };
   S.saveSettings({ setPrefs: all });
-  if (set.preset) S.savePreset(set.preset.name, { ...set.preset.opts, levels: p.levels }, set.preset.id);
+  if (set.preset) S.savePreset(set.preset.name, { ...set.preset.opts, leaf: p.leaf, levels: p.levels }, set.preset.id);
 }
 
 // 세트별 기억(함께 학습할 갈래, 모아 보기의 과목 등)만 바꾼다
@@ -242,8 +249,9 @@ function renderSet() {
         .map(({ r, n }) => `<button class="chip pick ${(set.subj || null) === r ? 'on' : ''}" data-subjf="${r || ''}"><span>${r ? esc(S.node(r).title || '제목 없음') : '전체'}</span><small>${n}</small></button>`).join('')}</div>
     </section>` : ''}
     <section class="panel">
-      <div class="panel-h"><h3>레벨</h3><span class="muted small">여러 개 선택 가능 · 안 고르면 전부</span></div>
-      <div class="level-list">${p.avail.map((d) => `<button class="level-btn ${p.levels.includes(d) ? 'on' : ''}" data-level="${d}">
+      <div class="panel-h"><h3>레벨</h3><span class="muted small">맨 끝 갈래, 또는 레벨 여러 개 · 안 고르면 전부</span></div>
+      <div class="level-list">${p.leafCount ? `<button class="level-btn leaf ${p.leaf ? 'on' : ''}" data-act="leaf">
+        <span><b>맨 끝 갈래</b><small>단원마다 깊이가 달라도 가장 마지막 갈래만</small></span><em>${p.leafCount}장</em></button>` : ''}${p.avail.map((d) => `<button class="level-btn ${!p.leaf && p.levels.includes(d) ? 'on' : ''}" data-level="${d}">
         <span><b>${esc(S.levelName(d))}</b><small>${set.node && d === S.depth(set.node.id) ? '이 갈래 자체' : `Lv${d}`}</small></span><em>${p.counts.get(d)}장</em></button>`).join('')}</div>
       <div class="kv mode-pick"><span>학습 방식</span><div class="seg" data-seg="cardMode"><button class="${cardMode() === 'browse' ? 'on' : ''}" data-v="browse">넘기며 외우기</button><button class="${cardMode() === 'test' ? 'on' : ''}" data-v="test">알아요 · 몰라요</button></div></div>
       <p class="muted small mode-desc">${cardMode() === 'browse' ? '좌우로 넘기기만 해요. 진도(숙련도)에는 기록되지 않아요.' : '카드마다 알아요/몰라요를 골라요. 진도에 기록되고, 끝나면 모르는 카드만 다시 볼 수 있어요.'}</p>
@@ -471,7 +479,7 @@ async function startFromSet() {
   const cards = buildDeck(set, p);
   if (!cards.length) return toast('카드가 없어요');
   if (hasSession() && !browsing() && session.hist.length && !(await confirmDlg('진행 중인 학습을 닫고 새로 시작할까요?', { ok: '새로 시작' }))) return;
-  const lv = p.levels.length ? ' · ' + p.levels.map((d) => S.levelName(d)).join(', ') : '';
+  const lv = p.leaf ? ' · 맨 끝 갈래' : p.levels.length ? ' · ' + p.levels.map((d) => S.levelName(d)).join(', ') : '';
   begin(cards, set.title + lv, { ...view });
 }
 
@@ -497,7 +505,11 @@ async function onClick(e) {
   }
   if (b.dataset.level) {
     const d = +b.dataset.level;
-    return updatePref((p) => { p.levels = p.levels.includes(d) ? p.levels.filter((x) => x !== d) : [...p.levels, d].sort(); });
+    // 맨 끝 갈래에서 레벨을 누르면 그 레벨 하나로 시작
+    return updatePref((p) => {
+      if (p.leaf) { p.leaf = false; p.levels = [d]; return; }
+      p.levels = p.levels.includes(d) ? p.levels.filter((x) => x !== d) : [...p.levels, d].sort((a, b) => a - b);
+    });
   }
   if (b.dataset.judge) return judge(b.dataset.judge === '1');
   if (b.dataset.libopen) {
@@ -521,6 +533,7 @@ async function onClick(e) {
     case 'resume': session.paused = false; return render();
     case 'list': return api.go('train', 'list');
     case 'start': return startFromSet();
+    case 'leaf': return updatePref((p) => { p.leaf = !p.leaf; });
     case 'undo': return undo();
     case 'quit': return quit();
     case 'star': {
@@ -554,7 +567,7 @@ async function onClick(e) {
       const set = currentSet();
       const name = await promptDlg('내 세트 이름', set.title);
       if (!name) return;
-      const id = S.savePreset(name, { scope: set.scope, levels: prefsFor(set).levels });
+      const id = S.savePreset(name, { scope: set.scope, leaf: prefsFor(set).leaf, levels: prefsFor(set).levels });
       toast('내 세트에 저장했어요');
       return api.go('train', 'set:' + id);
     }

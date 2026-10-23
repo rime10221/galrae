@@ -341,9 +341,13 @@ const H = `
     out.library = !!$(`#view-train [data-node="${ob}"]`);
     click($(`#view-train .set-main[data-node="${ob}"]`)); await sleep(150);
     const cardIds = (d) => S.descendants(ob).filter((x) => S.depth(x) === d && ((S.node(x).note || '').trim() || S.children(x).length));
-    out.defaultLevel = $$('#view-train .level-btn.on').map((x) => +x.dataset.level).join() === '2' && $$('.term-row').length === cardIds(2).length;
-    click($('#view-train [data-level="2"]')); await sleep(20);
+    // 기본은 맨 끝 갈래 (깊이가 섞여 있어도 하위 없는 갈래만)
+    const leaves = S.descendants(ob).filter((x) => !S.children(x).length && (S.node(x).note || '').trim());
+    const leafDepths = new Set(leaves.map((x) => S.depth(x)));
+    out.defaultLevel = $$('#view-train .level-btn.on').length === 1 && !!$('#view-train .level-btn.leaf.on') && leafDepths.size > 1
+      && $$('.term-row').length === leaves.length && $$('.term-row').every((r) => leaves.includes(r.dataset.open));
     click($('#view-train [data-level="3"]')); await sleep(20);
+    out.defaultLevel = out.defaultLevel && !$('#view-train .level-btn.leaf.on') && $$('#view-train .level-btn.on').map((x) => +x.dataset.level).join() === '3';
     const expected = cardIds(3).length;
     out.deckCount = $$('.term-row').length === expected;
     // 넘기며 외우기: 기록 없이 앞뒤로
@@ -382,7 +386,10 @@ const H = `
     // 내 세트: 여러 범위 묶기
     const pid = S.savePreset('테스트 세트', { scope: [S.findByTitle('임신과 당뇨병'), S.findByTitle('임신과 감염질환')], levels: [] });
     await go('#train/set:' + pid);
-    out.preset = $('.set-h h1')?.textContent === '테스트 세트' && $$('.term-row').length === 3;
+    const pLeaves = [S.findByTitle('임신과 당뇨병'), S.findByTitle('임신과 감염질환')].flatMap((x) => S.descendants(x)).filter((x) => !S.children(x).length && (S.node(x).note || '').trim());
+    out.preset = $('.set-h h1')?.textContent === '테스트 세트' && $$('.term-row').length === pLeaves.length && pLeaves.length === 2;
+    click($('#view-train [data-act="leaf"]')); await sleep(20);
+    out.preset = out.preset && $$('.term-row').length === 3;
     // 정리: 하위 없는 갈래에서 → 키 = 바로 외울 것 쓰기, Esc = 목록으로
     {
       const leaf = S.findByTitle('임신의 진단'), par = S.findByTitle('정상 임신과 산전 관리');
@@ -532,7 +539,7 @@ const H = `
   ok('정리: ⠿ 끌어서 순서 바꾸기', r.dragAfter);
   ok('정리: 끌어서 가운데에 놓으면 하위로', r.dragInside);
   ok('카드: 세트 목록', r.library);
-  ok('카드: 세트 기본 레벨(바로 아래) + 카드 목록', r.defaultLevel);
+  ok('카드: 기본은 맨 끝 갈래(깊이 섞여도) + 레벨로 바꾸기', r.defaultLevel);
   ok('카드: 레벨별 장수', r.deckCount);
   ok('카드: 넘기며 외우기(기록 없음, 앞뒤 이동)', r.browse);
   ok('카드: 끝까지 진행', r.card.steps);
