@@ -28,6 +28,7 @@ export function init(root, hooks) {
   el.addEventListener('click', onClick);
   el.addEventListener('input', (e) => { if (e.target.matches('#libSearch')) { libQuery = e.target.value.trim(); renderLibraryList(); } });
   document.addEventListener('keydown', onKey);
+  addEventListener('resize', () => drawWhere());
   bindSwipe();
 }
 
@@ -346,14 +347,48 @@ function backHtml(id) {
 
 // 📍 어디에 속하는지: 위 갈래 경로 + 바로 위 갈래에서 갈라지는 같은 층 갈래들 (누를 때만 보여 줌)
 let whereFor = null;
+// 마인드맵처럼 왼쪽 → 오른쪽: 위 갈래들이 한 줄로 이어지고, 바로 위 갈래에서 같은 층 갈래들이 갈라진다
+const BRANCH = ['#007aff', '#ff9500', '#34c759', '#af52de', '#ff2d55', '#5ac8fa', '#5856d6', '#ff3b30', '#e0b000', '#00c7be'];
 function whereHtml(id) {
   const par = S.parentOf(id);
   const path = S.path(id).slice(0, -1);
   const sibs = par ? S.children(par) : S.roots();
-  return `<div class="where-top"><b>어디에 속할까</b><button class="icon-btn small" data-act="where" title="닫기 (I)">✕</button></div>
-    <div class="where-path">${path.map((x) => `<span>${esc(x.title || '제목 없음')}</span>`).join('<i>›</i>') || '<span class="muted">맨 위 (과목)</span>'}</div>
-    <div class="where-h">${par ? `「${esc(S.node(par).title || '제목 없음')}」에서 갈라지는 갈래 ${sibs.length}` : `과목 ${sibs.length}`}</div>
-    <ol class="where-sibs">${sibs.map((k) => `<li class="${k === id ? 'me' : ''}"><span>${esc(S.node(k).title || '제목 없음')}</span>${k === id ? '<em>이 카드</em>' : ''}</li>`).join('')}</ol>`;
+  return `<div class="where-top"><b>어디에 속할까 <small>${par ? `「${esc(S.node(par).title || '제목 없음')}」에서 갈라지는 ${sibs.length}갈래` : `과목 ${sibs.length}`}</small></b><button class="icon-btn small" data-act="where" title="닫기 (I)">✕</button></div>
+    ${path.length > 1 ? `<div class="wm-crumbs">${path.slice(0, -1).map((x) => `<span>${esc(x.title || '제목 없음')}</span>`).join('<i>›</i>')}<i>›</i></div>` : ''}
+    <div class="wm-scroll"><div class="wm" id="wm"><svg class="wm-lines" aria-hidden="true"></svg>
+      ${path.map((x, i) => `<div class="wm-col ${i < path.length - 1 ? 'wm-up' : ''}"><span class="wm-node wm-anc">${esc(x.title || '제목 없음')}</span></div>`).join('')}
+      <div class="wm-col wm-sibs">${sibs.map((k, i) => `<span class="wm-node wm-sib ${k === id ? 'me' : ''}" style="--c:${BRANCH[i % BRANCH.length]}">${esc(S.node(k).title || '제목 없음')}</span>`).join('')}</div>
+    </div></div>
+    <p class="wm-more muted small">‹ 옆으로 밀면 위 갈래</p>`;
+}
+
+// 갈래 사이 곡선은 글자 자리가 정해진 뒤 그린다 (보일 때만)
+function drawWhere() {
+  const wm = $('#wm', el);
+  const box = $('#where', el);
+  if (!wm || !box || box.hidden) return;
+  // 다 안 들어가면(휴대폰) 위 갈래들은 지도 위에 경로로 접고, 바로 위 갈래 → 같은 층 갈래만 그린다
+  const sc = wm.parentElement;
+  box.classList.remove('compact');
+  if (sc.scrollWidth > sc.clientWidth + 1 && wm.querySelector('.wm-up')) box.classList.add('compact');
+  const base = wm.getBoundingClientRect();
+  const pt = (n, right) => { const r = n.getBoundingClientRect(); return { x: (right ? r.right : r.left) - base.left, y: r.top + r.height / 2 - base.top }; };
+  const curve = (p, q, color, w) => {
+    const mx = (p.x + q.x) / 2;
+    return `<path d="M${p.x + 4} ${p.y} C${mx} ${p.y} ${mx} ${q.y} ${q.x - 2} ${q.y}" style="stroke:${color};stroke-width:${w}" />`;
+  };
+  const anc = [...wm.querySelectorAll('.wm-anc')].filter((n) => n.offsetParent);
+  const out = [];
+  for (let i = 0; i + 1 < anc.length; i++) out.push(curve(pt(anc[i], true), pt(anc[i + 1], false), 'var(--g-edge)', 2.4));
+  const last = anc[anc.length - 1];
+  if (last) for (const sb of wm.querySelectorAll('.wm-sib')) out.push(curve(pt(last, true), pt(sb, false), sb.style.getPropertyValue('--c'), sb.classList.contains('me') ? 3 : 1.8));
+  const svg = wm.querySelector('svg');
+  svg.setAttribute('width', wm.scrollWidth);
+  svg.setAttribute('height', wm.scrollHeight);
+  svg.innerHTML = out.join('');
+  // 좁은 화면이면 같은 층 갈래 쪽이 보이게 (위 갈래는 옆으로 밀어서)
+  sc.scrollLeft = sc.scrollWidth;
+  box.classList.toggle('more', sc.scrollWidth > sc.clientWidth + 1);
 }
 
 function toggleWhere() {
@@ -363,6 +398,7 @@ function toggleWhere() {
   const box = $('#where', el);
   if (box) box.hidden = whereFor !== id;
   $('[data-act="where"].where-btn', el)?.classList.toggle('on', whereFor === id);
+  drawWhere();
 }
 
 function renderCard() {
@@ -399,6 +435,7 @@ function renderCard() {
          <button class="judge yes" data-judge="1" title="알아요 (→, 2)">✓<span>알아요</span></button>`}
     </div>
   </div>`;
+  if (whereFor === id) requestAnimationFrame(drawWhere);
 }
 
 function renderSummary() {

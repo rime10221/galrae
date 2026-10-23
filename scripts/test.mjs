@@ -358,8 +358,10 @@ const H = `
       const hiddenFirst = $('#where').hidden && !$('#flash .crumbs');
       key(document.body, 'i'); await sleep(20);
       const sibs = S.children(S.parentOf(cid)).map((k) => S.node(k).title);
-      const shown = !$('#where').hidden && $$('#where .where-sibs li').map((x) => x.querySelector('span').textContent).join('|') === sibs.join('|')
-        && $('#where .where-sibs li.me span').textContent === S.node(cid).title && $('#where .where-path').textContent.includes(S.node(S.parentOf(cid)).title);
+      const anc = S.path(cid).slice(0, -1).map((x) => x.title);
+      const shown = !$('#where').hidden && $$('#where .wm-sib').map((x) => x.textContent).join('|') === sibs.join('|')
+        && $('#where .wm-sib.me').textContent === S.node(cid).title && $$('#where .wm-anc').map((x) => x.textContent).join('|') === anc.join('|')
+        && $$("#where .wm-lines path").length === $$("#where .wm-anc").filter((n) => n.offsetParent).length - 1 + sibs.length;
       key(document.body, 'ArrowRight'); await sleep(200);
       out.where = hiddenFirst && shown && $('#where').hidden;
       click($('#view-train [data-act="where"]')); await sleep(20);
