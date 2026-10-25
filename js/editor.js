@@ -193,7 +193,9 @@ export function mount(host, md, onChange, { rows = 10, onSave = null } = {}) {
 
   rich.addEventListener('focus', () => { active = ed; });
   rich.addEventListener('blur', () => { setTimeout(() => { if (document.activeElement !== rich) { if (active === ed) active = null; unpick(); hideBubble(); } }, 150); });
-  rich.addEventListener('input', () => { if (picked && !picked.isConnected) picked = null; normalize(); changed(); });
+  // 한글 등 조합 입력 중에는 normalize() 가 커서를 옮기면 조합이 끊겨 첫 자음이 두 번 찍힌다 — 조합이 끝난 뒤에 정리
+  rich.addEventListener('input', (e) => { if (picked && !picked.isConnected) picked = null; if (!composing(e)) normalize(); changed(); });
+  rich.addEventListener('compositionend', () => { normalize(); changed(); });
 
   // 사진을 누르면 선택 (커서가 엉뚱한 데로 가지 않게 mousedown 은 막는다), 더블클릭은 크게 보기
   rich.addEventListener('mousedown', (e) => { if (e.target.closest('.md-img')) e.preventDefault(); });

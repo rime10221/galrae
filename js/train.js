@@ -82,6 +82,19 @@ function buildDeck(set, cfg) {
   return cfg.shuffle ? shuffle(ids) : ids;
 }
 
+// 다시 보기/다시 테스트: 지금 세트의 「카드 섞기」 설정을 따른다 (꺼져 있으면 정리 순서 그대로)
+function reorder(ids) {
+  const set = currentSet();
+  const p = set && prefsFor(set);
+  if (p && !p.shuffle) {
+    const ordered = buildDeck(set, { ...p, star: false, unknownOnly: false, shuffle: false });
+    const keep = new Set(ids);
+    const result = ordered.filter((x) => keep.has(x));
+    if (result.length === keep.size) return result;
+  }
+  return shuffle(ids);
+}
+
 // 갈래 세트에 같은 과목의 다른 갈래를 더해 함께 학습 (세트마다 기억)
 const subjectOf = (id) => S.path(id)[0]?.id;
 function extrasFor(n) {
@@ -550,8 +563,8 @@ function driveSummary() {
 function driveAgain() {
   const s = session;
   const unknown = s.unknown.filter((x) => S.node(x));
-  if (s.mode === 'test' && unknown.length) return begin(shuffle(unknown), s.title, s.from, 'test');
-  begin(shuffle(s.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), s.title, s.from, s.mode);
+  if (s.mode === 'test' && unknown.length) return begin(reorder(unknown), s.title, s.from, 'test');
+  begin(reorder(s.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), s.title, s.from, s.mode);
 }
 
 function driveOff() { driveKey = null; Drive.deactivate(); }
@@ -698,7 +711,7 @@ async function onClick(e) {
       S.as('train', () => S.updateNode(id, { star: !S.node(id).star }));
       return b.classList.toggle('on', S.node(id).star);
     }
-    case 'retry': return begin(shuffle(session.unknown.filter((x) => S.node(x))), session.title, session.from, 'test');
+    case 'retry': return begin(reorder(session.unknown.filter((x) => S.node(x))), session.title, session.from, 'test');
     case 'prev': return move(-1);
     case 'next': return move(1);
     case 'flip': return flip();
@@ -712,8 +725,8 @@ async function onClick(e) {
     case 'drive-cfg': return Drive.settingsDialog();
     case 'say': driveKey = null; return driveCard();
     case 'shuffle-now': { const s = session; const rest = shuffle(s.cards.slice(s.i)); s.cards.splice(s.i, rest.length, ...rest); s.flipped = false; persist(); toast('남은 카드를 섞었어요', { ms: 1200 }); return render(); }
-    case 'to-test': return begin(shuffle(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from, 'test');
-    case 'restart': return begin(shuffle(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from, session.mode);
+    case 'to-test': return begin(reorder(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from, 'test');
+    case 'restart': return begin(reorder(session.cards.filter((x, i, a) => a.indexOf(x) === i && S.node(x))), session.title, session.from, session.mode);
     case 'to-set': return backToSet();
     case 'new-preset': {
       const r = await pickRanges();
