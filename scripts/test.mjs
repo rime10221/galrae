@@ -657,6 +657,41 @@ const H = `
         && items[0].state === 2 && !!items[0].date && items[1].memo === '1회독' && n === 3
         && S.trackItems(S.trackSubjects()[0].id).length === 3 && S.trackSubjects().length === 2
         && !!S.exportable().track && S.merge(S.getData(), {}).track[items[0].id]?.state === 2;
+      // 단원 토글: '단원 › 이론' 줄은 단원별로 묶이고 처음엔 접힘, 펼치면 이론 이름만, 안에서 추가·이름 바꾸기
+      S.trackImport('# 부인과\n가족계획 › 피임\n불임 › 불임의 평가\n불임 › 보조생식술', null);
+      await sleep(50);
+      const gsub = () => $$('.plan-subj').find((x) => x.querySelector('.plan-name').value === '부인과');
+      const grp = (g) => [...gsub().querySelectorAll('.plan-grp')].find((x) => x.dataset.g === g);
+      const folded = gsub().querySelectorAll('.plan-grp').length === 2 && !grp('불임').querySelector('[data-rid]')
+        && grp('불임').querySelector('.plan-grp-t em').textContent === '2';
+      click(grp('불임').querySelector('.plan-grp-head')); await sleep(30);
+      const names = [...grp('불임').querySelectorAll('.plan-title')].map((x) => x.value).join();
+      const inp = grp('불임').querySelector('[data-f="new-in"]');
+      inp.value = '자궁외임신'; key(inp, 'Enter'); await sleep(30);
+      const ti = grp('불임').querySelectorAll('.plan-title')[0];
+      ti.value = '불임 평가'; ti.dispatchEvent(new Event('change', { bubbles: true })); await sleep(30);
+      click(grp('불임').querySelectorAll('[data-rid]')[1].querySelector('[data-act="up"]')); await sleep(30);
+      const bsub = S.trackSubjects().find((x) => x.title === '부인과');
+      const titles = S.trackItems(bsub.id).map((r) => r.title).join();
+      click(grp('불임').querySelector('[data-rid] [data-col="base"]')); await sleep(30);
+      click(grp('불임').querySelector('[data-rid] [data-col="base"]')); await sleep(30);
+      click(gsub().querySelector('[data-act="grp-all"]')); await sleep(30);
+      const allOpen = !!grp('가족계획').querySelector('[data-rid]');
+      out.planGroups = folded && names === '불임의 평가,보조생식술'
+        && titles === '가족계획 › 피임,불임 › 보조생식술,불임 › 불임 평가,불임 › 자궁외임신'
+        && grp('불임').querySelector('.plan-grp-c').textContent.trim().endsWith('1/3') && allOpen;
+      // 상위에서 한 번에 체크: 단원 → 그 단원 이론 모두, 과목 → 과목 전체, 다시 누르면 해제, 되돌리기
+      const bItems = () => S.trackItems(bsub.id);
+      const inG = () => bItems().filter((r) => r.title.startsWith('불임 › '));
+      click(grp('불임').querySelector('[data-act="grp-state"][data-col="review"]')); await sleep(30);
+      const gAll = inG().every((r) => r.acts?.review === 2) && !bItems().find((r) => r.title === '가족계획 › 피임').acts?.review;
+      click(grp('불임').querySelector('[data-act="grp-state"][data-col="review"]')); await sleep(30);
+      const gNone = inG().every((r) => !r.acts?.review);
+      click(gsub().querySelector('[data-act="subj-state"][data-col="base"]')); await sleep(30);
+      const sAll = bItems().every((r) => r.state === 2 && r.date);
+      click([...$$('#toasts button')].pop()); await sleep(30);
+      const undone = bItems().filter((r) => r.state === 2).length === 1;
+      out.planBulk = gAll && gNone && sAll && undone;
     }
     key(document.body, 'k', { ctrlKey: true }); await sleep(30);
     const pin = $('dialog.palette input');
@@ -739,6 +774,8 @@ const H = `
   ok('마인드맵: 과목만 펼치기(하위 과목 포함, 다른 과목 숨김) · 다시 누르면 모든 과목', r.subjOnly);
   ok('진도표: 과목·단원 추가 · 상태 · 메모 · 붙여넣기 · 동기화 데이터', r.plan);
   ok('진도표: 작성 + 내가 정한 행위(복습·문제풀이·추가)를 따로 체크 · 행위 설정', r.planActs);
+  ok('진도표: 단원 토글(접힘·펼침·안에서 추가·이름·순서·모두 펼치기)', r.planGroups);
+  ok('진도표: 단원·과목에서 한 번에 완료/해제 · 되돌리기', r.planBulk);
   ok('빠른 찾기', r.palette);
   ok('동기화 병합(최신 우선)', r.merge);
   ok('JS 오류 없음', errors.length === 0, errors.join(' | '));

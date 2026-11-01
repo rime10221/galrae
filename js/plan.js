@@ -5,7 +5,23 @@ import { $, esc, uid, openDialog, confirmDlg, lsGet, lsSet } from './util.js';
 let el, api;
 const FOLD = 'galrae.v1.planFold';
 let fold = new Set(lsGet(FOLD, []));
+const OPEN = 'galrae.v1.planOpen'; // 펼친 단원 토글 '과목 id|단원'
+let openG = new Set(lsGet(OPEN, []));
+const saveOpen = () => lsSet(OPEN, [...openG]);
 const STATE = [['○', '안 함'], ['◐', '하는 중'], ['●', '완료']];
+// '단원 › 이론' 으로 쓴 줄은 단원별 토글로 묶는다
+const SEP = ' › ';
+const splitTitle = (t) => { const i = t.indexOf(SEP); return i < 0 ? [null, t] : [t.slice(0, i), t.slice(i + SEP.length)]; };
+function blocks(items) {
+  const out = [], byG = new Map();
+  for (const r of items) {
+    const [g] = splitTitle(r.title);
+    if (g == null) { out.push({ row: r }); continue; }
+    if (!byG.has(g)) { const b = { group: g, items: [] }; byG.set(g, b); out.push(b); }
+    byG.get(g).items.push(r);
+  }
+  return out;
+}
 
 export function init(root, hooks) {
   el = root;
@@ -26,9 +42,11 @@ function stats(items, cols) {
   });
 }
 
-function statHtml(st) {
-  return `<div class="plan-stats">${st.map((c) => `<span class="plan-stat" title="${esc(c.name)} ${c.done}/${c.total}">
-    <b>${esc(c.name)}</b><span class="bar"><i style="width:${c.pct}%"></i></span><em>${c.done}/${c.total}</em></span>`).join('')}</div>`;
+// act 를 주면 눌러서 그 범위의 행위를 모두 완료/해제
+function statHtml(st, act = '') {
+  const tag = act ? 'button' : 'span';
+  return `<div class="plan-stats">${st.map((c) => `<${tag} class="plan-stat${act ? ' tap' : ''}" ${act ? `data-act="${act}" data-col="${c.id}"` : ''} title="${esc(c.name)} ${c.done}/${c.total}${act ? (c.total && c.done === c.total ? ' · 눌러서 모두 해제' : ' · 눌러서 모두 완료') : ''}">
+    <b>${esc(c.name)}</b><span class="bar"><i style="width:${c.pct}%"></i></span><em>${c.done}/${c.total}</em></${tag}>`).join('')}</div>`;
 }
 
 function render() {
@@ -48,23 +66,45 @@ function render() {
 function subjectHtml(s, cols) {
   const closed = fold.has(s.id);
   const items = S.trackItems(s.id);
+  const bl = blocks(items);
+  const groups = bl.filter((b) => b.group != null);
+  const allOpen = groups.length && groups.every((b) => openG.has(s.id + '|' + b.group));
   return `<section class="panel plan-subj" data-sid="${s.id}">
     <div class="plan-head">
       <button class="icon-btn" data-act="fold" title="접기/펼치기">${closed ? '▸' : '▾'}</button>
       <input class="input plan-name" data-f="title" value="${esc(s.title)}" aria-label="과목 이름">
+      ${groups.length && !closed ? `<button class="btn small ghost" data-act="grp-all">${allOpen ? '모두 접기' : '모두 펼치기'}</button>` : ''}
       <button class="icon-btn" data-act="up" title="위로">↑</button><button class="icon-btn" data-act="down" title="아래로">↓</button>
       <button class="icon-btn" data-act="del-subject" title="과목 삭제">🗑</button>
     </div>
-    ${statHtml(stats(items, cols))}
+    ${statHtml(stats(items, cols), items.length ? 'subj-state' : '')}
     ${closed ? '' : `${items.length ? `<div class="plan-row plan-colhead"><span></span>${cols.map((c) => `<span class="plan-colname" title="${esc(c.name)}">${esc(c.name)}</span>`).join('')}<span>날짜</span><span>메모</span><span></span></div>` : ''}
-    <div class="plan-rows">${items.map((r) => rowHtml(r, cols)).join('')}</div>
-    <div class="plan-add"><input class="input" data-f="new" placeholder="단원 추가 (Enter)"></div>`}
+    <div class="plan-rows">${bl.map((b) => (b.row ? rowHtml(b.row, cols) : groupHtml(s.id, b, cols))).join('')}</div>
+    <div class="plan-add"><input class="input" data-f="new" placeholder="추가 (Enter) · '단원 › 이론' 으로 쓰면 그 단원 아래로"></div>`}
   </section>`;
 }
 
-function rowHtml(r, cols) {
+function groupHtml(sid, b, cols) {
+  const open = openG.has(sid + '|' + b.group);
+  const st = stats(b.items, cols);
+  return `<div class="plan-grp ${open ? 'open' : ''}" data-g="${esc(b.group)}">
+    <div class="plan-row plan-grp-head" data-act="grp" role="button" tabindex="0" aria-expanded="${open}">
+      <span class="plan-grp-t"><i>${open ? '▾' : '▸'}</i><b>${esc(b.group)}</b><em>${b.items.length}</em></span>
+      ${st.map((c) => {
+        const full = c.total && c.done === c.total;
+        return `<button class="plan-grp-c ${full ? 'full' : c.done ? 'some' : ''}" data-act="grp-state" data-col="${c.id}" title="${esc(c.name)} ${c.done}/${c.total} · 눌러서 모두 ${full ? '해제' : '완료'}"><small>${esc(c.name)} </small>${c.done}/${c.total}</button>`;
+      }).join('')}
+      <span></span><span></span><span></span>
+    </div>
+    ${open ? `<div class="plan-grp-rows">${b.items.map((r) => rowHtml(r, cols, b.group)).join('')}
+      <div class="plan-add in"><input class="input" data-f="new-in" placeholder="'${esc(b.group)}'에 이론 추가 (Enter)"></div></div>` : ''}
+  </div>`;
+}
+
+function rowHtml(r, cols, group = null) {
+  const name = group == null ? r.title : splitTitle(r.title)[1];
   return `<div class="plan-row s${r.state || 0}" data-rid="${r.id}">
-    <input class="input plan-title" data-f="title" value="${esc(r.title)}" aria-label="단원">
+    <input class="input plan-title" data-f="title" value="${esc(name)}" title="${esc(r.title)}" aria-label="이론">
     ${cols.map((c) => {
       const v = S.actState(r, c.id);
       const [sym, label] = STATE[v] || STATE[0];
@@ -97,6 +137,25 @@ async function onClick(e) {
       if (fold.has(sid)) fold.delete(sid); else fold.add(sid);
       lsSet(FOLD, [...fold]);
       return render();
+    case 'grp': {
+      const k = sid + '|' + b.closest('[data-g]').dataset.g;
+      if (openG.has(k)) openG.delete(k); else openG.add(k);
+      saveOpen();
+      return render();
+    }
+    case 'grp-state': {
+      const g = b.closest('[data-g]').dataset.g;
+      return bulk(S.trackItems(sid).filter((r) => splitTitle(r.title)[0] === g), b.dataset.col, g);
+    }
+    case 'subj-state':
+      return bulk(S.trackItems(sid), b.dataset.col, S.trackRow(sid).title);
+    case 'grp-all': {
+      const keys = blocks(S.trackItems(sid)).filter((x) => x.group != null).map((x) => sid + '|' + x.group);
+      const all = keys.every((k) => openG.has(k));
+      for (const k of keys) if (all) openG.delete(k); else openG.add(k);
+      saveOpen();
+      return render();
+    }
     case 'state': {
       const r = S.trackRow(rid), col = b.dataset.col;
       const v = (S.actState(r, col) + 1) % 3;
@@ -107,9 +166,16 @@ async function onClick(e) {
       });
       return render();
     }
-    case 'up': case 'down':
-      S.as('plan', () => S.trackMove(rid || sid, b.dataset.act === 'up' ? -1 : 1));
+    case 'up': case 'down': {
+      const d = b.dataset.act === 'up' ? -1 : 1;
+      if (!rid) { S.as('plan', () => S.trackMove(sid, d)); return render(); }
+      // 같은 단원끼리만 순서를 바꾼다
+      const g = splitTitle(S.trackRow(rid).title)[0];
+      const same = S.trackItems(sid).filter((r) => splitTitle(r.title)[0] === g);
+      const o = same[same.findIndex((r) => r.id === rid) + d];
+      if (o) S.as('plan', () => S.trackSwap(rid, o.id));
       return render();
+    }
     case 'del':
       S.as('plan', () => S.trackDelete(rid));
       return render();
@@ -123,6 +189,21 @@ async function onClick(e) {
   }
 }
 
+// 상위에서 한 번에: 모두 완료였으면 모두 해제, 아니면 모두 완료. 되돌리기 가능
+function bulk(items, col, label) {
+  if (!items.length) return;
+  const name = S.trackCols().find((c) => c.id === col)?.name || '';
+  const v = items.every((r) => S.actState(r, col) === 2) ? 0 : 2;
+  const before = items.map((r) => ({ id: r.id, col, v: S.actState(r, col), date: r.date || '' }));
+  const after = items.map((r) => ({ id: r.id, col, v, ...(col === 'base' && v === 2 && !r.date ? { date: todayStr() } : {}) }));
+  S.as('plan', () => S.trackBulk(after));
+  render();
+  api.toast(`${label} · ${name} ${items.length}개 ${v ? '모두 완료' : '모두 해제'}`, {
+    action: '되돌리기',
+    onAction: () => { S.as('plan', () => S.trackBulk(before)); render(); },
+  });
+}
+
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -133,21 +214,46 @@ function onChange(e) {
   if (!f || f === 'new' || !el.contains(e.target)) return;
   const id = ridOf(e.target) || sidOf(e.target);
   if (!id) return;
-  const v = f === 'title' ? e.target.value.trim() : e.target.value;
-  if (f === 'title' && !v) { e.target.value = S.trackRow(id).title; return; }
+  let v = f === 'title' ? e.target.value.trim() : e.target.value;
+  const old = S.trackRow(id).title;
+  // 단원 토글 안의 이름 칸은 이론 이름만 보여 주므로 단원 이름을 붙여서 저장
+  const g = ridOf(e.target) && e.target.closest('[data-g]') ? splitTitle(old)[0] : null;
+  if (f === 'title' && !v) { e.target.value = g == null ? old : splitTitle(old)[1]; return; }
+  if (f === 'title' && g != null) v = g + SEP + v;
   S.as('plan', () => S.trackUpdate(id, { [f]: v }));
 }
 
 function onKey(e) {
   if (e.isComposing || e.key !== 'Enter') return;
   const t = e.target;
+  const sid = sidOf(t);
   if (t.dataset.f === 'new') {
     const v = t.value.trim();
     if (!v) return;
-    S.as('plan', () => S.trackAdd(sidOf(t), v));
+    const [g] = splitTitle(v);
+    if (g != null) { openG.add(sid + '|' + g); saveOpen(); }
+    S.as('plan', () => S.trackAdd(sid, v, orderAfter(sid, g)));
     render();
-    $(`[data-sid="${sidOf(t)}"] [data-f="new"]`, el)?.focus();
+    $(`[data-sid="${sid}"] [data-f="new"]`, el)?.focus();
+  } else if (t.dataset.f === 'new-in') {
+    const v = t.value.trim();
+    if (!v) return;
+    const g = t.closest('[data-g]').dataset.g;
+    S.as('plan', () => S.trackAdd(sid, g + SEP + v, orderAfter(sid, g)));
+    render();
+    [...el.querySelectorAll(`[data-sid="${sid}"] [data-g]`)].find((x) => x.dataset.g === g)?.querySelector('[data-f="new-in"]')?.focus();
   } else if (t.dataset.f) t.blur();
+  else if (t.dataset.act === 'grp') t.click();
+}
+
+// 같은 단원의 마지막 줄 바로 뒤에 들어갈 순서 (단원이 없으면 맨 끝)
+function orderAfter(sid, g) {
+  if (g == null) return {};
+  const items = S.trackItems(sid);
+  const i = items.map((r) => splitTitle(r.title)[0]).lastIndexOf(g);
+  if (i < 0) return {};
+  const next = items[i + 1];
+  return { order: next ? (items[i].order + next.order) / 2 : items[i].order + 1 };
 }
 
 // 행위(열) 이름 바꾸기 · 추가 · 삭제 · 순서. 작성(기본 진도)은 지울 수 없다

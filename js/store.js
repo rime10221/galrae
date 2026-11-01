@@ -430,6 +430,19 @@ export function trackSetAct(id, col, v) {
   r.updated = now();
   touch();
 }
+// 여러 줄을 한 번에: [{ id, col, v, date? }]
+export function trackBulk(changes) {
+  const t = now();
+  for (const { id, col, v, date } of changes) {
+    const r = trackRow(id);
+    if (!r) continue;
+    if (col === 'base') r.state = v;
+    else r.acts = { ...(r.acts || {}), [col]: v };
+    if (date !== undefined) r.date = date;
+    r.updated = t;
+  }
+  touch();
+}
 const trackKids = (parent) => Object.values(data.track)
   .filter((r) => !r.deleted && !r.kind && (r.parent ?? null) === (parent ?? null) && (!r.parent || (data.track[r.parent] && !data.track[r.parent].deleted)))
   .sort((a, b) => (a.order - b.order) || (a.created - b.created));
@@ -459,12 +472,16 @@ export function trackMove(id, delta) {
   const r = trackRow(id);
   if (!r) return;
   const sibs = trackKids(r.parent);
-  const i = sibs.indexOf(r), o = sibs[i + delta];
-  if (!o) return;
-  const t = now();
+  const o = sibs[sibs.indexOf(r) + delta];
+  if (o) trackSwap(id, o.id);
+}
+export function trackSwap(a, b) {
+  const r = trackRow(a), o = trackRow(b);
+  if (!r || !o) return;
+  const up = r.order > o.order;
   [r.order, o.order] = [o.order, r.order];
-  if (r.order === o.order) r.order += delta * 0.5;
-  r.updated = o.updated = t;
+  if (r.order === o.order) r.order += up ? -0.5 : 0.5;
+  r.updated = o.updated = now();
   touch();
 }
 // 줄바꿈 목록 → 단원 행들. `# 제목` 줄은 과목(없으면 새로 만듦)
