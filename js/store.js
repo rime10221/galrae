@@ -29,7 +29,7 @@ export function saveSettings(patch = {}) {
 }
 export const levelName = (d) => settings.levelNames[d - 1] || `Lv${d}`;
 
-const emptyData = () => ({ v: 1, nodes: {}, progress: {}, log: {}, presets: {}, images: {}, meta: {} });
+const emptyData = () => ({ v: 1, nodes: {}, progress: {}, log: {}, presets: {}, images: {}, track: {}, meta: {} });
 
 export const getData = () => data;
 export const onChange = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
@@ -54,7 +54,7 @@ export function load() {
 }
 
 function normalize(d) {
-  for (const k of ['nodes', 'progress', 'log', 'presets', 'images', 'meta']) if (!d[k] || typeof d[k] !== 'object') d[k] = {};
+  for (const k of ['nodes', 'progress', 'log', 'presets', 'images', 'track', 'meta']) if (!d[k] || typeof d[k] !== 'object') d[k] = {};
   return d;
 }
 
@@ -410,6 +410,80 @@ export function deletePreset(id) {
   touch();
 }
 
+// ---------- 진도표 (직접 기록) ----------
+// 과목 행(parent=null) 아래에 단원 행. 상태: 0 안 함 · 1 하는 중 · 2 완료
+// 행위(열)마다 따로 기록: 기본 열 'base'(작성)는 state, 나머지는 acts[열 id]
+// 행위 목록은 track.cols 한 줄(kind: 'cols')에 두고 모든 과목이 같이 쓴다
+const DEFAULT_COLS = [{ id: 'base', name: '작성' }, { id: 'review', name: '복습' }, { id: 'quiz', name: '문제풀이' }];
+export const trackCols = () => (data.track.cols?.cols?.length ? data.track.cols.cols : DEFAULT_COLS);
+export function trackSetCols(cols) {
+  const t = now();
+  data.track.cols = { id: 'cols', kind: 'cols', cols: cols.map(({ id, name }) => ({ id, name })), created: data.track.cols?.created || t, updated: t };
+  touch();
+}
+export const actState = (r, col) => (col === 'base' ? r.state || 0 : r.acts?.[col] || 0);
+export function trackSetAct(id, col, v) {
+  const r = trackRow(id);
+  if (!r) return;
+  if (col === 'base') r.state = v;
+  else r.acts = { ...(r.acts || {}), [col]: v };
+  r.updated = now();
+  touch();
+}
+const trackKids = (parent) => Object.values(data.track)
+  .filter((r) => !r.deleted && !r.kind && (r.parent ?? null) === (parent ?? null) && (!r.parent || (data.track[r.parent] && !data.track[r.parent].deleted)))
+  .sort((a, b) => (a.order - b.order) || (a.created - b.created));
+export const trackSubjects = () => trackKids(null);
+export const trackItems = (subject) => trackKids(subject);
+export const trackRow = (id) => (data.track[id] && !data.track[id].deleted ? data.track[id] : null);
+export function trackAdd(parent, title, extra = {}) {
+  const t = now();
+  const sibs = trackKids(parent);
+  const id = uid();
+  data.track[id] = { id, parent: parent ?? null, title, order: sibs.length ? sibs[sibs.length - 1].order + 1 : 0, state: 0, memo: '', date: '', created: t, updated: t, ...extra };
+  touch();
+  return id;
+}
+export function trackUpdate(id, patch) {
+  const r = trackRow(id);
+  if (!r) return;
+  Object.assign(r, patch, { updated: now() });
+  touch();
+}
+export function trackDelete(id) {
+  const t = now();
+  for (const r of [trackRow(id), ...trackKids(id)]) if (r) Object.assign(r, { deleted: true, updated: t });
+  touch();
+}
+export function trackMove(id, delta) {
+  const r = trackRow(id);
+  if (!r) return;
+  const sibs = trackKids(r.parent);
+  const i = sibs.indexOf(r), o = sibs[i + delta];
+  if (!o) return;
+  const t = now();
+  [r.order, o.order] = [o.order, r.order];
+  if (r.order === o.order) r.order += delta * 0.5;
+  r.updated = o.updated = t;
+  touch();
+}
+// 줄바꿈 목록 → 단원 행들. `# 제목` 줄은 과목(없으면 새로 만듦)
+export function trackImport(text, subject = null) {
+  let cur = subject, added = 0;
+  for (const raw of String(text).replace(/\r/g, '').split('\n')) {
+    const t = raw.trim();
+    if (!t) continue;
+    const m = t.match(/^#{1,6}\s+(.+)$/);
+    if (m) { cur = trackSubjects().find((s) => s.title === m[1].trim())?.id || trackAdd(null, m[1].trim()); continue; }
+    if (!cur) continue;
+    const title = t.replace(/^([-*+•]|\d+[.)])\s+/, '');
+    if (trackItems(cur).some((r) => r.title === title)) continue;
+    trackAdd(cur, title);
+    added++;
+  }
+  return added;
+}
+
 // ---------- 병합 (동기화) ----------
 export function merge(a, b) {
   a = normalize({ ...a });
@@ -424,6 +498,7 @@ export function merge(a, b) {
   mergeMap('progress', 'u');
   mergeMap('presets', 'updated');
   mergeMap('images', 'updated');
+  mergeMap('track', 'updated');
   // 어느 쪽이든 드라이브 파일 id를 알고 있으면 유지
   for (const k of Object.keys(out.images)) {
     const fid = a.images[k]?.fileId || b.images[k]?.fileId;
@@ -439,8 +514,8 @@ export function merge(a, b) {
 }
 
 export function exportable() {
-  const { v, nodes, progress, log, presets, images } = data;
-  return { v, nodes, progress, log, presets, images, app: 'galrae', exported: now() };
+  const { v, nodes, progress, log, presets, images, track } = data;
+  return { v, nodes, progress, log, presets, images, track, app: 'galrae', exported: now() };
 }
 
 export function importJSON(obj, mode = 'merge') {

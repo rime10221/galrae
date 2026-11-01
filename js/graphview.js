@@ -3,6 +3,7 @@ import * as S from './store.js';
 import { Graph } from './graph.js';
 import * as Ed from './editor.js';
 import * as Zoom from './zoom.js';
+import * as Subj from './subject.js';
 import { $, esc, renderMd, debounce, lsGet, lsSet } from './util.js';
 
 let el, api, g;
@@ -33,6 +34,7 @@ export function init(root, hooks) {
       <div class="seg" id="gLayout"><button data-v="tree">마인드맵</button><button data-v="force">자유</button></div>
       <div class="seg" id="gColor"><button data-v="subject">분류색</button><button data-v="mastery">숙련도</button></div>
       <label class="g-depth" title="이 단계까지 한 번에 펼치기">펼치기 <select class="input" id="gDepth"></select></label>
+      <button class="btn small" id="gSubj" title="선택한 갈래가 속한 과목만 모두 펼치고 다른 과목은 숨기기">과목만 펼치기</button>
       <button class="btn small" id="gLocal" title="선택한 갈래 주변만">주변만</button>
       <button class="btn small" id="gFit" title="전체 보기">⤢</button>
     </div>
@@ -68,6 +70,19 @@ export function init(root, hooks) {
     remember();
   });
   $('#gScope', el).addEventListener('change', (e) => { scope = e.target.value; refresh(true); });
+  $('#gSubj', el).addEventListener('click', () => {
+    // 이미 한 과목만 보는 중이면 다시 눌러 모든 과목으로
+    if (scope) { scope = ''; return refresh(true); }
+    const subs = Subj.list().map((x) => x.id);
+    const sel = g.sel && S.node(g.sel) ? g.sel : null;
+    const own = sel && S.path(sel).map((n) => n.id).reverse().find((x) => subs.includes(x));
+    scope = own || Subj.current() || '';
+    if (!scope) return;
+    for (const x of S.descendants(scope)) open.add(x);
+    saveOpen();
+    local = false;
+    refresh(true);
+  });
   $('#gLocal', el).addEventListener('click', () => {
     local = !local;
     if (local && !g.sel) { local = false; return api.toast('먼저 갈래를 하나 선택해 주세요'); }
@@ -95,7 +110,7 @@ export function show(id) {
   g.readColors();
   if (dirty || !g.nodes.length) refresh(true);
   if (id && S.node(id)) {
-    if (scope && S.rootOf(id) !== scope) { scope = ''; refresh(true); }
+    if (scope && scope !== id && !S.isAncestor(scope, id)) { scope = ''; refresh(true); }
     setTimeout(() => { focus(id, { record: false }); remember(); }, 60);
   } else {
     if (!g.sel) setTimeout(() => g.fit(0), 30);
@@ -204,14 +219,17 @@ function refresh(refit = false) {
   depthSel.innerHTML = `<option value="" disabled selected>단계</option>` + Array.from({ length: md }, (_, i) => `<option value="${i + 1}">${S.levelName(i + 1)}까지</option>`).join('') + `<option value="0">모두</option>`;
   const scopeSel = $('#gScope', el);
   if (scope && !S.node(scope)) scope = '';
-  scopeSel.innerHTML = `<option value="">모든 과목</option>` + S.roots().map((r) => `<option value="${r}">${esc(S.node(r).title || '제목 없음')}</option>`).join('');
+  scopeSel.innerHTML = `<option value="">모든 과목</option>` + Subj.list().map(({ id, depth }) => `<option value="${id}">${' '.repeat(depth)}${esc(S.node(id).title || '제목 없음')}</option>`).join('');
   scopeSel.value = scope;
+  $('#gSubj', el).classList.toggle('primary', !!scope);
+  $('#gSubj', el).textContent = scope ? '모든 과목 보기' : '과목만 펼치기';
   syncButtons();
 
   let ids = scope ? S.descendants(scope) : S.descendants(null);
   if (openInit) { S.roots().forEach((r) => open.add(r)); openInit = false; saveOpen(); }
   // 펼친 갈래의 바로 아래만 보인다
-  if (!local) ids = ids.filter((x) => S.path(x).slice(0, -1).every((a) => open.has(a.id)));
+  // (한 과목만 볼 때는 그 과목 위쪽 갈래는 따지지 않는다)
+  if (!local) ids = ids.filter((x) => S.path(x).slice(0, -1).every((a) => open.has(a.id) || (scope && a.id !== scope && !S.isAncestor(scope, a.id))));
   if (local && g.sel && S.node(g.sel)) {
     // 선택 갈래의 경로 + 형제 + 2단계 하위 + 링크
     const keep = new Set();

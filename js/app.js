@@ -4,11 +4,12 @@ import * as Sync from './sync.js';
 import * as Train from './train.js';
 import * as Tree from './outline.js';
 import * as GV from './graphview.js';
+import * as Plan from './plan.js';
 import * as Images from './images.js';
 import * as Zoom from './zoom.js';
 import { $, $$, esc, toast, openDialog, confirmDlg, download, copyText, timeAgo, todayKey, composing, debounce } from './util.js';
 
-const VIEWS = ['tree', 'graph', 'train', 'settings'];
+const VIEWS = ['tree', 'graph', 'plan', 'train', 'settings'];
 let current = 'tree';
 const dirty = new Set();
 
@@ -17,13 +18,14 @@ const ICONS = {
   train: '<rect x="3.5" y="5" width="13" height="15" rx="2"/><path d="M8 3h10.5a2 2 0 0 1 2 2v12.5"/>',
   graph: '<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="9" cy="18" r="2.5"/><path d="m8.2 7.2 7.6.6M7 8.3l1.4 7.4M16.3 9.9l-5.6 6.3"/>',
   tree: '<path d="M4 5h6M8 12h6M8 19h6M6 5v14h2M6 12h2"/><circle cx="18" cy="12" r="1.2"/><circle cx="18" cy="19" r="1.2"/>',
+  plan: '<rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="m8 9 1.6 1.6L12.5 7.5M8 15l1.6 1.6 2.9-3.1M14.5 9.5H17M14.5 15.5H17"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M4.2 6l2.1 2.1M17.7 15.9l2.1 2.1M2.5 12h3M18.5 12h3M4.2 18l2.1-2.1M17.7 8.1 19.8 6"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
   bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6l1-8z"/>',
   sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" class="ic" aria-hidden="true">${ICONS[n]}</svg>`;
-const LABELS = { tree: '정리', graph: '마인드맵', train: '카드 학습', settings: '설정' };
+const LABELS = { tree: '정리', graph: '마인드맵', plan: '진도표', train: '카드 학습', settings: '설정' };
 
 // ---------- 시작 ----------
 if (!Sync.handleAuthReturn()) boot();
@@ -41,6 +43,7 @@ function boot() {
   Train.init($('#view-train'), hooks);
   Tree.init($('#view-tree'), hooks);
   GV.init($('#view-graph'), hooks);
+  Plan.init($('#view-plan'), hooks);
   $('#view-settings').addEventListener('click', onSettingsClick);
   $('#view-settings').addEventListener('change', onSettingsChange);
   document.addEventListener('click', (e) => {
@@ -150,6 +153,7 @@ function route() {
   if (view !== 'train') Train.leave();
   if (view === 'train') Train.show(id);
   else if (view === 'graph') GV.show(id);
+  else if (view === 'plan') Plan.show();
   else if (view === 'tree') Tree.show(id);
   else if (view === 'settings') renderSettings();
   dirty.delete(view);
@@ -160,6 +164,7 @@ function onStoreChange(o) {
   GV.markDirty();
   if (current === 'tree') Tree.onStoreChange(o);
   else if (current === 'graph') GV.update();
+  else if (current === 'plan') Plan.onStoreChange(o);
   else if (current === 'settings' && o.src !== 'settings') renderSettings();
   else if (current === 'train' && o.src !== 'train') Train.render();
   // 다른 화면은 다시 들어갈 때 새로 그린다

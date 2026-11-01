@@ -29,6 +29,19 @@ export function resolve() {
 
 export const current = () => resolve().scope;
 
+// 과목처럼 다루는 갈래들: 최상위 + '안을 탭으로' 켜진 갈래의 하위 (들여쓰기 단계 depth 포함)
+export function list() {
+  const out = [];
+  const walk = (items, depth) => {
+    for (const x of items) {
+      out.push({ id: x, depth });
+      if (isTabs(x)) walk(S.children(x), depth + 1);
+    }
+  };
+  walk(S.roots(), 0);
+  return out;
+}
+
 // 하위 갈래를 탭으로 나누기 켜기/끄기. 켤 때는 위쪽 갈래들도 같이 켜서 탭 줄이 이어지게 한다
 export function split(id, on) {
   if (!S.node(id)) return;

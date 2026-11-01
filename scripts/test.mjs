@@ -605,6 +605,59 @@ const H = `
     out.mapBack = openNow && collapsedChild && ups.length >= 1 && ups.every(Boolean) && !location.hash.startsWith('#graph');
     await go('#graph'); await sleep(200);    click($('#gLayout [data-v="force"]')); await sleep(200);
     click($('#gLayout [data-v="tree"]')); await sleep(200);
+    // 과목만 펼치기: 선택한 갈래의 과목(탭으로 나눈 하위 과목 포함) 전체를 펼치고 다른 과목은 숨김
+    {
+      const Subj = await import('./js/subject.js');
+      const obg = S.findByTitle('산부인과');
+      const other = S.addNode({ title: '다른과목' });
+      S.addNode({ parent: other, title: '다른과목 단원' });
+      S.updateNode(obg, { tabs: true });
+      const sub = S.findByTitle('임신의 내외과적 질환');
+      await go('#graph/' + S.findByTitle('임신과 당뇨병')); await sleep(200);
+      click($('#gSubj')); await sleep(200);
+      const shown = new Set(g.nodes.map((n) => n.id));
+      out.subjOnly = Subj.list().some((x) => x.id === sub)
+        && S.descendants(sub).every((x) => shown.has(x)) && shown.size === S.descendants(sub).length
+        && !shown.has(other) && $('#gSubj').classList.contains('primary');
+      click($('#gSubj')); await sleep(200);
+      out.subjOnly = out.subjOnly && g.map.has(other) && !$('#gSubj').classList.contains('primary');
+      S.updateNode(obg, { tabs: false }); S.deleteNode(other);
+    }
+    // 진도표: 과목·단원 추가, 상태 바꾸기, 메모, 붙여넣기
+    {
+      await go('#plan'); await sleep(100);
+      click($('[data-act="add-subject"]')); await sleep(50);
+      const name = $('.plan-subj .plan-name');
+      name.value = '내과'; name.dispatchEvent(new Event('change', { bubbles: true }));
+      for (const t of ['순환기', '호흡기']) { const add = $('.plan-subj [data-f="new"]'); add.value = t; key(add, 'Enter'); await sleep(20); }
+      const rows = () => $$('.plan-row[data-rid]');
+      click(rows()[0].querySelector('[data-act="state"]')); await sleep(20);
+      click(rows()[0].querySelector('[data-act="state"]')); await sleep(20);
+      // 작성과 따로 복습·문제풀이 체크
+      click(rows()[1].querySelector('[data-col="review"]')); await sleep(20);
+      click(rows()[1].querySelector('[data-col="quiz"]')); await sleep(20);
+      click(rows()[1].querySelector('[data-col="quiz"]')); await sleep(20);
+      // 행위 설정: '기출' 추가, '복습' 이름 바꾸기
+      click($('[data-act="cols"]')); await sleep(50);
+      $('dialog .plan-col[data-i="1"] input').value = '1회 복습';
+      $('#colNew').value = '기출'; click($('#colAdd')); await sleep(20);
+      click($('#colSave')); await sleep(50);
+      const cols = S.trackCols();
+      const gichul = cols.find((c) => c.name === '기출');
+      click(rows()[1].querySelector(`[data-col="${gichul?.id}"]`)); await sleep(20);
+      const it1 = S.trackItems(S.trackSubjects()[0].id)[1];
+      out.planActs = cols.map((c) => c.name).join() === '작성,1회 복습,문제풀이,기출' && !it1.state
+        && it1.acts.review === 1 && it1.acts.quiz === 2 && it1.acts[gichul.id] === 1
+        && rows()[0].querySelectorAll('.plan-st').length === 4 && $$('.plan-subj .plan-stat').length === 4;
+      const memo = rows()[1].querySelector('[data-f="memo"]');
+      memo.value = '1회독'; memo.dispatchEvent(new Event('change', { bubbles: true }));
+      const subs = S.trackSubjects(), items = S.trackItems(subs[0]?.id);
+      const n = S.trackImport('# 외과\n1. 외상\n2. 화상\n# 내과\n- 소화기', null);
+      out.plan = subs.length === 1 && subs[0].title === '내과' && items.map((r) => r.title).join() === '순환기,호흡기'
+        && items[0].state === 2 && !!items[0].date && items[1].memo === '1회독' && n === 3
+        && S.trackItems(S.trackSubjects()[0].id).length === 3 && S.trackSubjects().length === 2
+        && !!S.exportable().track && S.merge(S.getData(), {}).track[items[0].id]?.state === 2;
+    }
     key(document.body, 'k', { ctrlKey: true }); await sleep(30);
     const pin = $('dialog.palette input');
     pin.value = '당뇨'; pin.dispatchEvent(new Event('input')); await sleep(20);
@@ -683,6 +736,9 @@ const H = `
   ok('마인드맵: 같은 깊이는 같은 열', r.graph.sameDepthSameX);
   ok('마인드맵: 형제는 순서대로 위→아래', r.graph.rowsOk);
   ok('마인드맵: 노드가 제자리에 정착', r.graph.settled);
+  ok('마인드맵: 과목만 펼치기(하위 과목 포함, 다른 과목 숨김) · 다시 누르면 모든 과목', r.subjOnly);
+  ok('진도표: 과목·단원 추가 · 상태 · 메모 · 붙여넣기 · 동기화 데이터', r.plan);
+  ok('진도표: 작성 + 내가 정한 행위(복습·문제풀이·추가)를 따로 체크 · 행위 설정', r.planActs);
   ok('빠른 찾기', r.palette);
   ok('동기화 병합(최신 우선)', r.merge);
   ok('JS 오류 없음', errors.length === 0, errors.join(' | '));

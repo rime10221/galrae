@@ -244,7 +244,7 @@ export async function runSync({ manual = false } = {}) {
     let base = local;
     // 새 기기의 손대지 않은 예시 데이터는 드라이브 데이터에 섞지 않는다
     if (remote && Object.keys(remote.nodes).length && local.meta.sampleUntouched) {
-      base = { v: 1, nodes: {}, progress: {}, log: {}, presets: {}, meta: { sampleUntouched: false } };
+      base = { v: 1, nodes: {}, progress: {}, log: {}, presets: {}, track: {}, meta: { sampleUntouched: false } };
     }
     if (remote) {
       const merged = S.merge(base, remote);
@@ -271,7 +271,7 @@ export async function runSync({ manual = false } = {}) {
   }
 }
 
-const stripMeta = (d) => ({ nodes: d.nodes, progress: d.progress, log: d.log, presets: d.presets, images: d.images });
+const stripMeta = (d) => ({ nodes: d.nodes, progress: d.progress, log: d.log, presets: d.presets, images: d.images, track: d.track });
 
 export function scheduleSync() {
   st.dirty = true;
